@@ -135,7 +135,8 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <label for="liveKey">Clé API Gemini</label>
           <input id="liveKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
           <label for="liveModel">Modèle</label>
-          <input id="liveModel" type="text" value="gemini-3.8-live" spellcheck="false">
+          <input id="liveModel" type="text" value="gemini-3.8-live" spellcheck="false" list="liveModels">
+          <datalist id="liveModels"><option value="gemini-3.8-live"><option value="gemini-3.1-flash-live-preview"><option value="gemini-3-flash-live"><option value="gemini-2.5-flash-native-audio-preview-09-2025"></datalist>
           <label for="liveVoice">Voix</label>
           <select id="liveVoice">
             <option>Leda</option><option>Aoede</option><option>Kore</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option>
@@ -144,10 +145,14 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
         <div class="toggles">
           <label class="tg"><input type="checkbox" id="liveRemember"> Retenir la clé ici</label>
           <label class="tg"><input type="checkbox" id="liveHalf" checked> Micro coupé quand il parle</label>
-          <label class="tg"><input type="checkbox" id="liveCam"> Envoyer la caméra</label>
+          <label class="tg"><input type="checkbox" id="liveCam"> Caméra (activable en direct)</label>
           <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
         </div>
         <div class="livegrid">
+          <label for="liveFacing">Caméra</label>
+          <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
+          <label for="liveVad">Fin de phrase</label>
+          <select id="liveVad"><option value="fast">Rapide (0,4 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
           <label for="liveEmoMode">Émotions</label>
           <select id="liveEmoMode">
             <option value="silent">Fonction, sans couper la parole</option>
@@ -163,7 +168,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
         <video id="liveVideo" playsinline muted hidden></video>
         <div class="chatlog" id="liveLog" aria-live="polite"><p class="bubble err">Entre ta clé, choisis une voix, puis démarre. Parle normalement : Gemini détecte tout seul quand tu as fini.</p></div>
         <div class="timings"><span>Délai de réponse <b id="liveLat">—</b></span><span>Moyenne <b id="liveAvg">—</b></span><span>Échanges <b id="liveN">0</b></span></div>
-        <div class="timings"><span>Reçu : son <b id="dAudio">0</b></span><span>texte <b id="dText">0</b></span><span>fonctions <b id="dTool">0</b></span><span>tours <b id="dTurn">0</b></span></div>
+        <div class="timings"><span>Reçu : son <b id="dAudio">0</b></span><span>texte <b id="dText">0</b></span><span>fonctions <b id="dTool">0</b></span><span>tours <b id="dTurn">0</b></span><span>images <b id="dImg">0</b></span></div>
         <p class="note">Avec « Micro coupé quand il parle », le robot ne s'entend pas lui-même, mais on ne peut pas lui couper la parole. Décoche-le avec un casque pour tester les interruptions. La clé reste dans ce navigateur et n'est envoyée qu'à Google.</p>
       </div>
 
@@ -1106,10 +1111,10 @@ const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
 Parle toujours en français, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
 Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse, puis à nouveau dès que ton émotion change pendant que tu parles. N'annonce jamais à voix haute que tu changes d'expression.
-Si on te montre quelque chose et que tu reçois des images de ta caméra, décris ce que tu vois simplement.`;
+Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose ou qu’on te demande ce que tu vois, regarde la dernière image et réponds simplement.`;
 let ws=null, actx=null, micStream=null, node=null, src=null, camStream=null, camTimer=0, outGain=null;
-let emoMode='silent', turnAudio=0, turnTools=0; const diag={audio:0,text:0,tool:0,turn:0};
-const showDiag=()=>{ L('dAudio').textContent=diag.audio; L('dText').textContent=diag.text; L('dTool').textContent=diag.tool; L('dTurn').textContent=diag.turn; };
+let emoMode='silent', turnAudio=0, turnTools=0; const diag={audio:0,text:0,tool:0,turn:0,img:0};
+const showDiag=()=>{ L('dAudio').textContent=diag.audio; L('dText').textContent=diag.text; L('dTool').textContent=diag.tool; L('dTurn').textContent=diag.turn; L('dImg').textContent=diag.img; };
 let nextT=0, sources=[], speakingUntil=0, lastVoiceAt=0, turnStarted=false, lats=[], curIn=null, curOut=null, emoBubble=null;
 function bub(cls,text){ const p=document.createElement('p'); p.className='bubble '+cls; p.textContent=text; log.appendChild(p); log.scrollTop=log.scrollHeight; return p; }
 function setState(t,on){ stateEl.textContent=t; stateEl.classList.toggle('on',!!on); }
@@ -1141,7 +1146,7 @@ function onMsg(m){
     const rs=[];
     for(const fc of m.toolCall.functionCalls||[]){
       let r={result:'ok'};
-      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ setExpr(k); } else r={result:'émotion inconnue'}; }
+      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ const wait=actx?Math.max(0,(nextT-actx.currentTime)*1000-60):0; if(wait>30) setTimeout(()=>setExpr(k),wait); else setExpr(k); } else r={result:'émotion inconnue'}; }
       turnTools++; diag.tool++; showDiag();
       rs.push(emoMode==='silent'?{id:fc.id,name:fc.name,response:r,scheduling:'SILENT'}:{id:fc.id,name:fc.name,response:r});
     }
@@ -1176,15 +1181,10 @@ async function start(){
     actx=actx||new (window.AudioContext||window.webkitAudioContext)(); await actx.resume();
     if(!outGain){ outGain=actx.createGain(); outGain.connect(actx.destination); window.__liveTap=outGain; }
     micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
-    if(L('liveCam').checked){
-      camStream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
-      const v=L('liveVideo'); v.srcObject=camStream; v.hidden=false; await v.play();
-      const c=document.createElement('canvas'); c.width=640; c.height=480; const g=c.getContext('2d');
-      camTimer=setInterval(()=>{ if(!ws||ws.readyState!==1) return; g.drawImage(v,0,0,640,480); c.toBlob(bl=>{ if(!bl) return; bl.arrayBuffer().then(ab=>send({realtimeInput:{video:{data:b64(ab),mimeType:'image/jpeg'}}})); },'image/jpeg',.6); },1000);
-    }
     await actx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET],{type:'application/javascript'})));
   }catch(e){ bub('err','Micro ou caméra refusés : '+(e.message||e)); stop(); return; }
   const model=L('liveModel').value.trim()||'gemini-3.8-live';
+  if(L('liveCam').checked) camOn();
   emoMode=L('liveEmoMode').value; LSset('gemEmo',emoMode); for(const k in diag) diag[k]=0; showDiag(); turnAudio=0; turnTools=0;
   ws=new WebSocket('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key='+encodeURIComponent(key));
   ws.onopen=()=>{
@@ -1195,7 +1195,8 @@ async function start(){
       ...(emoMode==='off'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'}},required:['emotion']}}]}]}),
-      inputAudioTranscription:{}, outputAudioTranscription:{}
+      inputAudioTranscription:{}, outputAudioTranscription:{},
+      ...(L('liveVad').value==='fast'?{realtimeInputConfig:{automaticActivityDetection:{endOfSpeechSensitivity:'END_SENSITIVITY_HIGH',silenceDurationMs:400,prefixPaddingMs:100}}}:{})
     }});
     src=actx.createMediaStreamSource(micStream); node=new AudioWorkletNode(actx,'cap'); src.connect(node);
     node.port.onmessage=e=>{
@@ -1214,10 +1215,28 @@ function stop(){
   try{ node&&node.disconnect(); src&&src.disconnect(); }catch(_){}
   node=null; src=null; stopPlayback();
   micStream&&micStream.getTracks().forEach(t=>t.stop()); micStream=null;
-  clearInterval(camTimer); camStream&&camStream.getTracks().forEach(t=>t.stop()); camStream=null; L('liveVideo').hidden=true;
+  camOff();
   L('liveStart').hidden=false; L('liveStop').hidden=true; setState('Déconnecté');
   setExpr('neutre');
 }
+async function camOn(){
+  if(camStream) return;
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:L('liveFacing').value},width:{ideal:640},height:{ideal:480}}});
+  }catch(e){ bub('err','Caméra refusée ou indisponible : '+(e.message||e.name||e)); L('liveCam').checked=false; return; }
+  const v=L('liveVideo'); v.srcObject=camStream; v.hidden=false;
+  try{ await v.play(); }catch(_){}
+  const c=document.createElement('canvas'), g=c.getContext('2d');
+  camTimer=setInterval(()=>{
+    if(!ws||ws.readyState!==1||!v.videoWidth) return;
+    const sc=Math.min(1,640/Math.max(v.videoWidth,v.videoHeight)); c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc);
+    g.drawImage(v,0,0,c.width,c.height);
+    c.toBlob(bl=>{ if(!bl) return; bl.arrayBuffer().then(ab=>{ send({realtimeInput:{video:{data:b64(ab),mimeType:'image/jpeg'}}}); diag.img++; showDiag(); }); },'image/jpeg',.7);
+  },1000);
+}
+function camOff(){ clearInterval(camTimer); camTimer=0; camStream&&camStream.getTracks().forEach(t=>t.stop()); camStream=null; L('liveVideo').hidden=true; }
+L('liveCam').onchange=()=>{ if(L('liveCam').checked){ if(ws) camOn(); } else camOff(); };
+L('liveFacing').onchange=()=>{ if(camStream){ camOff(); camOn(); } };
 L('liveStart').onclick=start; L('liveStop').onclick=stop;
 L('liveRemember').onchange=()=>{ if(!L('liveRemember').checked) LSset('gemKey',null); };
 })();
