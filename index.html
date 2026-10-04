@@ -154,6 +154,11 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
           <label for="liveVad">Fin de phrase</label>
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
+          <label for="liveVoiceMode">Qui parle</label>
+          <select id="liveVoiceMode">
+            <option value="robot">Le robot : Gemini écrit, le téléphone parle (émotions exactes)</option>
+            <option value="gemini">Gemini : voix de Google (émotions par fonction)</option>
+          </select>
           <label for="liveEmoMode">Émotions</label>
           <select id="liveEmoMode">
             <option value="silent">Fonction, sans couper la parole</option>
@@ -1133,6 +1138,7 @@ if(LS('gemKey')){ L('liveKey').value=LS('gemKey'); L('liveRemember').checked=tru
 if(LS('gemVoice')) L('liveVoice').value=LS('gemVoice');
 if(LS('gemModel')) L('liveModel').value=LS('gemModel');
 if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
+if(LS('gemVoiceMode')) L('liveVoiceMode').value=LS('gemVoiceMode');
 const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
 Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
@@ -1157,6 +1163,30 @@ this.port.postMessage({pcm:o.buffer,rms:Math.sqrt(rms/c.length)},[o.buffer]);thi
 registerProcessor('cap',Cap);`;
 
 function stopPlayback(){ for(const s of sources){ try{s.stop()}catch(_){} } sources=[]; nextT=0; speakingUntil=0; }
+let voiceMode='robot', txtRaw='', txtDone=0, txtEmo=null, txtFirst=false;
+const TAG_RE=/^\s*\[([^\]\n]{1,20})\]\s*/;
+function txtFeed(final){
+  while(txtDone<txtRaw.length){
+    const rest=txtRaw.slice(txtDone), m=rest.match(TAG_RE);
+    if(m){ const k=EMO_KEYS.find(e=>norm(e)===norm(m[1])); if(k){ txtEmo=k; dbg('étiquette ['+k+']'); } txtDone+=m[0].length; continue; }
+    if(/^\s*\[[^\]]*$/.test(rest)&&!final) break;
+    if(!rest.trim()){ txtDone=txtRaw.length; break; }
+    const re=/[.!?…]+["»”]?\s+/g, sm=re.exec(rest), ti=rest.slice(1).search(/\[/), tagIdx=ti<0?-1:ti+1;
+    let cut=-1;
+    if(sm&&(tagIdx<0||re.lastIndex<=tagIdx)) cut=re.lastIndex; else if(tagIdx>0) cut=tagIdx; else if(final) cut=rest.length;
+    if(cut<0) break;
+    const sent=rest.slice(0,cut);
+    if(sent.trim()){ dbg('dit : « '+sent.trim()+' »'+(txtEmo?' avec '+txtEmo:'')); speak(sent,txtEmo); txtEmo=null; }
+    txtDone+=cut;
+  }
+  if(final&&txtEmo){ setExpr(txtEmo); txtEmo=null; }
+}
+const SYS_TXT=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
+Tu entends ce qu'on te dit ; ta réponse écrite sera lue à voix haute par ta propre voix de robot. Écris en français, en 1 à 3 phrases courtes, simples et chaleureuses. Pas d'emoji, pas de liste, pas de mise en forme, pas de parenthèses.
+Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment. Si tu n'as pas compris ou n'entends qu'un bruit, demande gentiment de répéter. Ne réponds jamais en anglais.
+Commence TOUJOURS ta réponse par ton émotion entre crochets, choisie dans cette liste : ${EMO.map(k=>'['+k+']').join(' ')}. Quand ton émotion change, mets la nouvelle étiquette juste avant la phrase concernée.
+Exemple : [surpris] Oh, un dinosaure ! [content] J'adore les dinosaures, tu me le montres ?
+Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose, regarde la dernière image et réponds simplement.`;
 let emoQ=[], emoApplied=false, boundary=false, turnT0=0, lastChunkStart=0, turnRaw='', matchPos=0, firstTimer=0, segs=[];
 const nrm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const anchorOf=x=>nrm(x).split(' ').filter(Boolean).slice(0,3).join(' ');
@@ -1212,7 +1242,7 @@ function onMsg(m){
   if(m.goAway){ bub('err','Google va bientôt fermer la session (durée maximale).'); }
   if(m.error){ bub('err','Erreur Gemini : '+(m.error.message||JSON.stringify(m.error))); }
   const sc=m.serverContent; if(!sc) return;
-  if(sc.interrupted){ stopPlayback(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; turnRaw=''; matchPos=0; segs=[]; }
+  if(sc.interrupted){ if(voiceMode==='robot'&&synth){ synth.cancel(); syll=[]; txtRaw=''; txtDone=0; txtFirst=false; } stopPlayback(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; turnRaw=''; matchPos=0; segs=[]; }
   if(sc.inputTranscription?.text){ if(!curIn) curIn=bub('me',''); curIn.textContent+=sc.inputTranscription.text; log.scrollTop=log.scrollHeight; }
   if(sc.outputTranscription?.text){ const tx=sc.outputTranscription.text; if(!curOut) curOut=bub('bot',''); curOut.textContent+=tx; log.scrollTop=log.scrollHeight;
     dbg('texte : « '+tx.trim()+' »');
@@ -1223,7 +1253,13 @@ function onMsg(m){
     }
   }
   for(const p of sc.modelTurn?.parts||[]){
-    if(p.text&&!p.thought){ diag.text++; showDiag(); if(!curOut) curOut=bub('bot',''); curOut.textContent+=p.text; }
+    if(p.text&&!p.thought){ diag.text++; showDiag();
+      if(voiceMode==='robot'){
+        if(!txtFirst){ txtFirst=true; curIn=null; if(!turnT0) turnT0=performance.now(); dbg('premier texte reçu');
+          if(lastVoiceAt){ const l=performance.now()-lastVoiceAt; lats.push(l); L('liveLat').textContent=(l/1000).toFixed(2).replace('.',',')+' s';
+            L('liveAvg').textContent=(lats.reduce((a,b)=>a+b,0)/lats.length/1000).toFixed(2).replace('.',',')+' s'; L('liveN').textContent=lats.length; } }
+        txtRaw+=p.text; if(!curOut) curOut=bub('bot',''); curOut.textContent=txtRaw.replace(/\[[^\]\n]{1,20}\]\s*/g,'').replace(/\[[^\]\n]*$/,''); log.scrollTop=log.scrollHeight; txtFeed(false);
+      } else { if(!curOut) curOut=bub('bot',''); curOut.textContent+=p.text; } }
     if(p.inlineData&&/audio/.test(p.inlineData.mimeType||'')){
       diag.audio++; turnAudio++; showDiag();
       if(!turnStarted){ turnStarted=true; curIn=null; if(!turnT0) turnT0=performance.now(); dbg('premier son reçu'); boundary=false;
@@ -1235,6 +1271,7 @@ function onMsg(m){
     }
   }
   if(sc.turnComplete){ diag.turn++; showDiag();
+    if(voiceMode==='robot'){ txtFeed(true); if(!txtRaw.trim()) bub('err','Tour terminé sans réponse.'); txtRaw=''; txtDone=0; txtEmo=null; txtFirst=false; dbg('fin du tour'); turnT0=0; curOut=null; curIn=null; lastVoiceAt=0; return; }
     if(!turnAudio&&turnTools) bub('err',emoMode==='silent'?'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Fonction, réponse normale » dans Émotions et redémarre.':'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Désactivées » dans Émotions et redémarre.');
     else if(!turnAudio) bub('err','Tour terminé sans son.');
     if(emoQ.length&&actx){ const n=emoQ.length, rem=Math.max(0,nextT-actx.currentTime); dbg(n+' émotion(s) sans phrase associée : réparties sur la fin');
@@ -1255,22 +1292,23 @@ async function start(){
   }catch(e){ bub('err','Micro ou caméra refusés : '+(e.message||e)); stop(); return; }
   const model=L('liveModel').value.trim()||'gemini-3.8-live';
   if(L('liveCam').checked) camOn();
-  emoMode=L('liveEmoMode').value; LSset('gemEmo',emoMode); for(const k in diag) diag[k]=0; showDiag(); turnAudio=0; turnTools=0;
+  emoMode=L('liveEmoMode').value; LSset('gemEmo',emoMode); voiceMode=L('liveVoiceMode').value; LSset('gemVoiceMode',voiceMode);
+  if(voiceMode==='robot'&&synth){ synth.cancel(); try{ const pr=new SpeechSynthesisUtterance(' '); pr.volume=0; synth.speak(pr); }catch(_){} } for(const k in diag) diag[k]=0; showDiag(); turnAudio=0; turnTools=0;
   ws=new WebSocket('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key='+encodeURIComponent(key));
   ws.onopen=()=>{
     send({setup:{
       model:'models/'+model,
-      generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}}},
-      systemInstruction:{parts:[{text:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
-      ...(emoMode==='off'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
+      generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}}},
+      systemInstruction:{parts:[{text:voiceMode==='robot'?SYS_TXT:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
+      ...(emoMode==='off'||voiceMode==='robot'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'},phrase:{type:'STRING',description:'Les 3 ou 4 premiers mots de la phrase que tu vas dire avec cette émotion, exactement comme tu vas les prononcer.'}},required:['emotion','phrase']}}]}]}),
-      inputAudioTranscription:{}, outputAudioTranscription:{},
+      inputAudioTranscription:{}, ...(voiceMode==='robot'?{}:{outputAudioTranscription:{}}),
       ...(L('liveVad').value==='fast'?{realtimeInputConfig:{automaticActivityDetection:{endOfSpeechSensitivity:'END_SENSITIVITY_HIGH',silenceDurationMs:600,prefixPaddingMs:300}}}:{})
     }});
     src=actx.createMediaStreamSource(micStream); node=new AudioWorkletNode(actx,'cap'); src.connect(node);
     node.port.onmessage=e=>{
-      const speaking=performance.now()<speakingUntil;
+      const speaking=performance.now()<speakingUntil||(voiceMode==='robot'&&(ttsActive>0||(synth&&synth.speaking)));
       if(e.data.rms>.02&&!speaking) lastVoiceAt=performance.now();
       if(speaking&&L('liveHalf').checked) return;
       send({realtimeInput:{audio:{data:b64(e.data.pcm),mimeType:'audio/pcm;rate=16000'}}});
@@ -1285,7 +1323,7 @@ function stop(){
   try{ node&&node.disconnect(); src&&src.disconnect(); }catch(_){}
   node=null; src=null; stopPlayback();
   micStream&&micStream.getTracks().forEach(t=>t.stop()); micStream=null;
-  camOff();
+  camOff(); if(synth) synth.cancel();
   L('liveStart').hidden=false; L('liveStop').hidden=true; setState('Déconnecté');
   setExpr('neutre');
 }
