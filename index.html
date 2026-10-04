@@ -156,9 +156,12 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
           <label for="liveVoiceMode">Qui parle</label>
           <select id="liveVoiceMode">
-            <option value="robot">Le robot : Gemini écrit, le téléphone parle (émotions exactes)</option>
-            <option value="gemini">Gemini : voix de Google (émotions par fonction)</option>
+            <option value="robot">Le robot : le téléphone écoute et parle, Gemini Flash-Lite réfléchit (émotions exactes)</option>
+            <option value="gemini">Gemini Live : voix de Google (émotions par fonction)</option>
           </select>
+          <label for="txtModel">Modèle texte</label>
+          <input id="txtModel" type="text" value="gemini-3.5-flash-lite" spellcheck="false" list="txtModels">
+          <datalist id="txtModels"><option value="gemini-3.5-flash-lite"><option value="gemini-3.1-flash-lite"><option value="gemma-4-31b-it"><option value="gemma-4-26b-it"></datalist>
           <label for="liveEmoMode">Émotions</label>
           <select id="liveEmoMode">
             <option value="silent">Fonction, sans couper la parole</option>
@@ -1140,6 +1143,7 @@ if(LS('gemVoice')) L('liveVoice').value=LS('gemVoice');
 if(LS('gemModel')) L('liveModel').value=LS('gemModel');
 if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
 if(LS('gemVoiceMode')) L('liveVoiceMode').value=LS('gemVoiceMode');
+if(LS('gemTxtModel')) L('txtModel').value=LS('gemTxtModel');
 const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
 Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
@@ -1287,7 +1291,78 @@ function onMsg(m){
     emoQ=[]; emoApplied=false; boundary=false; turnT0=0; turnRaw=''; matchPos=0; segs=[]; clearTimeout(firstTimer); firstTimer=0;
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
 }
+// ---------- Mode « robot » : reconnaissance du téléphone + Gemini texte + voix du téléphone ----------
+let rec=null, recOn=false, busyUntil=0, hist=[], fetchCtl=null;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function grabFrame(){
+  const v=L('liveVideo'); if(!camStream||!v.videoWidth) return null;
+  const c=document.createElement('canvas'), sc=Math.min(1,640/Math.max(v.videoWidth,v.videoHeight));
+  c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',.7).split(',')[1];
+}
+let lastSpeakEnd=0; setInterval(()=>{ { const n=performance.now(); if(ttsActive>0||(synth&&synth.speaking)||syll.some(x=>x.t0+x.d>n)) lastSpeakEnd=n; } },100);
+const robotBusy=()=>!!fetchCtl||ttsActive>0||(synth&&synth.speaking)||performance.now()<lastSpeakEnd+400;
+async function askText(userText){
+  const key=L('liveKey').value.trim(), model=L('txtModel').value.trim()||'gemini-3.5-flash-lite';
+  LSset('gemTxtModel',model);
+  const parts=[{text:userText}], img=grabFrame(); if(img){ parts.push({inlineData:{mimeType:'image/jpeg',data:img}}); diag.img++; showDiag(); }
+  const contents=[...hist,{role:'user',parts}];
+  const t0=performance.now(); turnT0=t0; txtRaw=''; txtDone=0; txtEmo=null; txtFirst=false; curOut=null;
+  dbg('envoi à '+model+(img?' avec une image':''));
+  fetchCtl=new AbortController(); setState('Il réfléchit…',true);
+  try{
+    const isGemma=/^gemma/i.test(model);
+    const body=isGemma?{contents:[{role:'user',parts:[{text:SYS_TXT}]},{role:'model',parts:[{text:"[content] D'accord !"}]},...contents]}:{systemInstruction:{parts:[{text:SYS_TXT}]},contents};
+    body.generationConfig={maxOutputTokens:300,temperature:.8};
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':streamGenerateContent?alt=sse&key='+encodeURIComponent(key),
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:fetchCtl.signal});
+    if(!res.ok){ let m=''; try{ m=(await res.json()).error?.message||''; }catch(_){} throw new Error('HTTP '+res.status+(m?' : '+m:'')); }
+    const rd=res.body.getReader(), dec=new TextDecoder(); let buf='';
+    for(;;){
+      const {value,done}=await rd.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true}); let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const chunk=buf.slice(0,i); buf=buf.slice(i+2);
+        for(const line of chunk.split('\n')){ if(!line.startsWith('data:')) continue;
+          let j; try{ j=JSON.parse(line.slice(5)); }catch(_){ continue; }
+          for(const p of j.candidates?.[0]?.content?.parts||[]){ if(!p.text||p.thought) continue;
+            diag.text++; showDiag();
+            if(!txtFirst){ txtFirst=true; const l=performance.now()-t0; lats.push(l); L('liveLat').textContent=(l/1000).toFixed(2).replace('.',',')+' s';
+              L('liveAvg').textContent=(lats.reduce((a,b)=>a+b,0)/lats.length/1000).toFixed(2).replace('.',',')+' s'; L('liveN').textContent=lats.length; dbg('premier texte reçu'); }
+            txtRaw+=p.text; if(!curOut) curOut=bub('bot','');
+            curOut.textContent=txtRaw.replace(/\[[^\]\n]{1,20}\]\s*/g,'').replace(/\[[^\]\n]*$/,''); log.scrollTop=log.scrollHeight; txtFeed(false);
+          } } } }
+    txtFeed(true); diag.turn++; showDiag();
+    if(txtRaw.trim()){ hist.push({role:'user',parts:[{text:userText}]},{role:'model',parts:[{text:txtRaw}]}); if(hist.length>12) hist=hist.slice(-12); }
+    else bub('err','Réponse vide.');
+  }catch(e){ if(e.name!=='AbortError') bub('err','Erreur Gemini : '+(e.message||e)); }
+  finally{ fetchCtl=null; dbg('fin du tour'); setState('À l\u2019écoute',true); }
+}
+function startRobot(){
+  if(!SR){ bub('err','La reconnaissance vocale n\u2019est pas disponible dans ce navigateur. Utilise Chrome.'); stop(); return; }
+  if(synth){ synth.cancel(); try{ const pr=new SpeechSynthesisUtterance(' '); pr.volume=0; synth.speak(pr); }catch(_){} }
+  hist=[]; recOn=true; lats=[];
+  rec=new SR(); rec.lang='fr-FR'; rec.continuous=true; rec.interimResults=true;
+  rec.onresult=e=>{
+    if(robotBusy()) return;
+    let fin='', inter='';
+    for(let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; if(r.isFinal) fin+=r[0].transcript; else inter+=r[0].transcript; }
+    if(inter&&!fin){ if(!curIn) curIn=bub('me',''); curIn.textContent=inter; log.scrollTop=log.scrollHeight; }
+    if(fin.trim()){ if(!curIn) curIn=bub('me',''); curIn.textContent=fin.trim(); curIn=null; askText(fin.trim()); }
+  };
+  rec.onerror=e=>{ if(e.error==='not-allowed'||e.error==='service-not-allowed'){ bub('err','Micro refusé pour la reconnaissance vocale.'); stop(); } else if(e.error!=='no-speech'&&e.error!=='aborted') dbg('reconnaissance : '+e.error); };
+  rec.onend=()=>{ if(recOn) setTimeout(()=>{ if(recOn) try{ rec.start(); }catch(_){} },150); };
+  try{ rec.start(); }catch(_){}
+  setState('À l\u2019écoute',true); bub('err','Prêt. Parle au robot : le texte gris montre ce que le téléphone a compris.');
+  if(L('liveCam').checked) camOn();
+}
 async function start(){
+  if(L('liveVoiceMode').value==='robot'){
+    if(!L('liveKey').value.trim()){ bub('err','Il manque la clé API.'); return; }
+    LSset('gemKey',L('liveRemember').checked?L('liveKey').value.trim():null); LSset('gemVoiceMode','robot'); voiceMode='robot';
+    emoMode=L('liveEmoMode').value; for(const k in diag) diag[k]=0; showDiag();
+    L('liveStart').hidden=true; L('liveStop').hidden=false; startRobot(); return;
+  }
   const key=L('liveKey').value.trim(); if(!key){ bub('err','Il manque la clé API.'); return; }
   LSset('gemKey',L('liveRemember').checked?key:null); LSset('gemVoice',L('liveVoice').value); LSset('gemModel',L('liveModel').value.trim());
   L('liveStart').hidden=true; L('liveStop').hidden=false; setState('Connexion…');
@@ -1326,6 +1401,7 @@ async function start(){
   ws.onclose=ev=>{ if(ev.code!==1000||ev.reason) bub('err','Session fermée'+(ev.reason?' : '+ev.reason:' (code '+ev.code+')')+'.'); stop(); };
 }
 function stop(){
+  recOn=false; try{ rec&&rec.abort(); }catch(_){} rec=null; fetchCtl&&fetchCtl.abort(); fetchCtl=null;
   if(ws){ const w=ws; ws=null; try{w.close(1000)}catch(_){} }
   try{ node&&node.disconnect(); src&&src.disconnect(); }catch(_){}
   node=null; src=null; stopPlayback();
@@ -1343,16 +1419,16 @@ async function camOn(){
   try{ await v.play(); }catch(_){}
   const c=document.createElement('canvas'), g=c.getContext('2d');
   camTimer=setInterval(()=>{
-    if(!ws||ws.readyState!==1||!v.videoWidth) return;
+    if(!ws||ws.readyState!==1||!v.videoWidth) return; // le mode « robot » prend une image à la demande
     const sc=Math.min(1,640/Math.max(v.videoWidth,v.videoHeight)); c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc);
     g.drawImage(v,0,0,c.width,c.height);
     c.toBlob(bl=>{ if(!bl) return; bl.arrayBuffer().then(ab=>{ send({realtimeInput:{video:{data:b64(ab),mimeType:'image/jpeg'}}}); diag.img++; showDiag(); }); },'image/jpeg',.7);
   },1000);
 }
 function camOff(){ clearInterval(camTimer); camTimer=0; camStream&&camStream.getTracks().forEach(t=>t.stop()); camStream=null; L('liveVideo').hidden=true; }
-L('liveCam').onchange=()=>{ if(L('liveCam').checked){ if(ws) camOn(); } else camOff(); };
+L('liveCam').onchange=()=>{ if(L('liveCam').checked){ if(ws||recOn) camOn(); } else camOff(); };
 L('liveFacing').onchange=()=>{ if(camStream){ camOff(); camOn(); } };
-window.__liveTest={onMsg,init(){ actx=actx||new AudioContext(); if(!outGain){ outGain=actx.createGain(); outGain.connect(actx.destination); window.__liveTap=outGain; } }};
+window.__liveTest={askText,onMsg,init(){ actx=actx||new AudioContext(); if(!outGain){ outGain=actx.createGain(); outGain.connect(actx.destination); window.__liveTap=outGain; } }};
 L('liveStart').onclick=start; L('liveStop').onclick=stop;
 L('liveRemember').onchange=()=>{ if(!L('liveRemember').checked) LSset('gemKey',null); };
 })();
