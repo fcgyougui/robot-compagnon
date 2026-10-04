@@ -152,7 +152,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <label for="liveFacing">Caméra</label>
           <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
           <label for="liveVad">Fin de phrase</label>
-          <select id="liveVad"><option value="fast">Rapide (0,4 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
+          <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
           <label for="liveEmoMode">Émotions</label>
           <select id="liveEmoMode">
             <option value="silent">Fonction, sans couper la parole</option>
@@ -272,7 +272,7 @@ const EXPR={
 };
 // ---------- Variante Kawaii ----------
 const KAWAII={
-  neutre:  {eye:'round', sL:1,   sR:1,   pupil:.55, mouth:'cat',   blush:.55, look:0},
+  neutre:  {eye:'round', sL:1,   sR:1,   pupil:.55, mouth:'smile',   blush:.55, look:0},
   content: {eye:'happy', sL:1,   sR:1,   pupil:.55, mouth:'grin',  blush:.85, look:0,   extra:'sparkle'},
   curieux: {eye:'round', sL:1.08,sR:.86, pupil:.5,  mouth:'dot',   blush:.4,  look:-.35,extra:'?'},
   surpris: {eye:'round', sL:1.15,sR:1.15,pupil:.32, mouth:'o',     blush:.4,  look:0,   extra:'!'},
@@ -516,15 +516,33 @@ function kFace(g,P){
   if(P.beforeMouth) P.beforeMouth(ex,ey);
   const mx=W/2+gx*6, my=P.mouthY+gy*5+breath*.6+P.oy;
   g.strokeStyle=P.mouthCol; g.lineWidth=4.5;
-  if(talk>.04 || k.mouth==='grin'){
-    const grin=k.mouth==='grin'&&talk<.2, t=Math.max(talk,grin?.3:0), w=grin?44:32-t*8, h=grin?18:5+t*40;
+  const TALK={content:'smile',timide:'smile',neutre:'oval',ecoute:'oval',curieux:'oval',surpris:'round',endormi:'round',triste:'sad',boudeur:'pout'}[shownKey]||'oval';
+  if(k.mouth==='grin'&&talk<.2){
+    const w=44,h=18;
     const lip=()=>{ g.beginPath(); g.moveTo(mx-w/2,my-4); g.lineTo(mx+w/2,my-4); g.ellipse(mx,my-4,w/2,h,0,0,Math.PI); g.closePath(); };
-    lip(); g.fillStyle=P.mouthIn; g.fill();
-    if(h>12){ g.save(); g.clip(); g.fillStyle=P.tongue; g.beginPath(); g.ellipse(mx,my-4+h*.95,w*.32,h*.4,0,0,Math.PI*2); g.fill(); g.restore(); }
-    lip(); g.stroke(); mouthOpen=Math.min(1,t/.6);
+    lip(); g.fillStyle=P.mouthIn; g.fill(); g.save(); g.clip(); g.fillStyle=P.tongue; g.beginPath(); g.ellipse(mx,my-4+h*.95,w*.32,h*.4,0,0,Math.PI*2); g.fill(); g.restore();
+    lip(); g.stroke(); mouthOpen=.3;
+  } else if(talk>.04){
+    const t=talk; let path, tongue=false;
+    if(TALK==='smile'){ const w=32-t*8, h=5+t*40; tongue=h>12;
+      path=()=>{ g.beginPath(); g.moveTo(mx-w/2,my-4); g.lineTo(mx+w/2,my-4); g.ellipse(mx,my-4,w/2,h,0,0,Math.PI); g.closePath(); };
+      path(); g.fillStyle=P.mouthIn; g.fill();
+      if(tongue){ g.save(); g.clip(); g.fillStyle=P.tongue; g.beginPath(); g.ellipse(mx,my-4+h*.95,w*.32,h*.4,0,0,Math.PI*2); g.fill(); g.restore(); }
+    } else if(TALK==='sad'){ const w=26-t*4, h=4+t*24;
+      path=()=>{ g.beginPath(); g.moveTo(mx-w/2,my+8); g.lineTo(mx+w/2,my+8); g.ellipse(mx,my+8,w/2,h,0,0,Math.PI,true); g.closePath(); };
+      path(); g.fillStyle=P.mouthIn; g.fill();
+    } else if(TALK==='round'){ const rx=7+t*9, ry=8+t*20;
+      path=()=>{ g.beginPath(); g.ellipse(mx,my+2,rx,ry,0,0,Math.PI*2); };
+      path(); g.fillStyle=P.mouthIn; g.fill();
+    } else { const off=TALK==='pout'?8:0, rx=(TALK==='pout'?8:12)+t*3, ry=3+t*(TALK==='pout'?18:26);
+      path=()=>{ g.beginPath(); g.ellipse(mx+off,my+2,rx,ry,0,0,Math.PI*2); };
+      path(); g.fillStyle=P.mouthIn; g.fill();
+    }
+    path(); g.stroke(); mouthOpen=Math.min(1,t/.6);
   } else {
     g.beginPath();
     switch(k.mouth){
+      case 'smile': g.arc(mx,my-10,13,Math.PI*.28,Math.PI*.72); break;
       case 'cat': g.arc(mx-9,my-3,9,0,Math.PI); g.moveTo(mx+18,my-3); g.arc(mx+9,my-3,9,0,Math.PI); break;
       case 'dot': g.ellipse(mx,my,5,5,0,0,Math.PI*2); break;
       case 'o': g.ellipse(mx,my,10,13,0,0,Math.PI*2); g.fillStyle=P.mouthIn; g.fill(); break;
@@ -794,7 +812,14 @@ function drawManga(g,ch){
     g.fillStyle='#E06A7B'; g.beginPath(); g.ellipse(mx,my+h*1.25,w*.3,h*.5,0,0,Math.PI*2); g.fill();
     g.restore(); p(); g.stroke();
   };
-  if(talk>.04){ open(28-talk*6,3+talk*30,2); mouthOpen=Math.min(1,talk/.6); }
+  if(talk>.04){
+    if(shownKey==='triste'){ const w=22-talk*4, h=3+talk*22;
+      const p=()=>{ g.beginPath(); g.moveTo(mx-w/2,my+6); g.lineTo(mx+w/2,my+6); g.ellipse(mx,my+6,w/2,h,0,0,Math.PI,true); g.closePath(); };
+      p(); g.fillStyle='#6E1F2C'; g.fill(); p(); g.stroke(); }
+    else if(shownKey==='surpris'||shownKey==='endormi'){ const p=()=>{ g.beginPath(); g.ellipse(mx,my+3,6+talk*7,6+talk*18,0,0,Math.PI*2); }; p(); g.fillStyle='#6E1F2C'; g.fill(); p(); g.stroke(); }
+    else if(shownKey==='boudeur'){ const p=()=>{ g.beginPath(); g.ellipse(mx+6,my+2,6+talk*3,3+talk*14,0,0,Math.PI*2); }; p(); g.fillStyle='#6E1F2C'; g.fill(); p(); g.stroke(); }
+    else open(28-talk*6,3+talk*30,2);
+    mouthOpen=Math.min(1,talk/.6); }
   else {
     mouthOpen=0;
     switch(k.mouth){
@@ -1109,8 +1134,9 @@ if(LS('gemModel')) L('liveModel').value=LS('gemModel');
 if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
 const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
-Parle toujours en français, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
+Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
 Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse, puis à nouveau dès que ton émotion change pendant que tu parles. N'annonce jamais à voix haute que tu changes d'expression.
+Si tu n’as pas bien compris, ou si tu n’entends qu’un bruit ou un mot isolé, demande gentiment en français de répéter. Ne réponds jamais en anglais.
 Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose ou qu’on te demande ce que tu vois, regarde la dernière image et réponds simplement.`;
 let ws=null, actx=null, micStream=null, node=null, src=null, camStream=null, camTimer=0, outGain=null;
 let emoMode='silent', turnAudio=0, turnTools=0; const diag={audio:0,text:0,tool:0,turn:0,img:0};
@@ -1196,7 +1222,7 @@ async function start(){
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'}},required:['emotion']}}]}]}),
       inputAudioTranscription:{}, outputAudioTranscription:{},
-      ...(L('liveVad').value==='fast'?{realtimeInputConfig:{automaticActivityDetection:{endOfSpeechSensitivity:'END_SENSITIVITY_HIGH',silenceDurationMs:400,prefixPaddingMs:100}}}:{})
+      ...(L('liveVad').value==='fast'?{realtimeInputConfig:{automaticActivityDetection:{endOfSpeechSensitivity:'END_SENSITIVITY_HIGH',silenceDurationMs:600,prefixPaddingMs:300}}}:{})
     }});
     src=actx.createMediaStreamSource(micStream); node=new AudioWorkletNode(actx,'cap'); src.connect(node);
     node.port.onmessage=e=>{
