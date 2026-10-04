@@ -1457,7 +1457,9 @@ async function start(){
   if(L('liveCam').checked) camOn();
   emoMode=L('liveEmoMode').value; LSset('gemEmo',emoMode); voiceMode=L('liveVoiceMode').value; LSset('gemVoiceMode',voiceMode);
   if(voiceMode==='robot'&&synth){ synth.cancel(); try{ const pr=new SpeechSynthesisUtterance(' '); pr.volume=0; synth.speak(pr); }catch(_){} } for(const k in diag) diag[k]=0; showDiag(); turnAudio=0; turnTools=0;
-  ws=new WebSocket('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key='+encodeURIComponent(key));
+  const alpha=voiceMode!=='robot'&&(L('liveProactive').checked||L('liveAffective').checked);
+  dbg('connexion à l\u2019API '+(alpha?'v1alpha':'v1beta'));
+  ws=new WebSocket('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.'+(alpha?'v1alpha':'v1beta')+'.GenerativeService.BidiGenerateContent?key='+encodeURIComponent(key));
   ws.onopen=()=>{
     send({setup:{
       model:'models/'+model,
@@ -1482,7 +1484,13 @@ async function start(){
   };
   ws.onmessage=async ev=>{ const t=typeof ev.data==='string'?ev.data:await ev.data.text(); try{ onMsg(JSON.parse(t)); }catch(err){ console.warn(err,t); } };
   ws.onerror=()=>bub('err','Erreur de connexion à Gemini.');
-  ws.onclose=ev=>{ if(ev.code!==1000||ev.reason) bub('err','Session fermée'+(ev.reason?' : '+ev.reason:' (code '+ev.code+')')+'.'); stop(); };
+  ws.onclose=ev=>{
+    if(ev.code!==1000||ev.reason) bub('err','Session fermée'+(ev.reason?' : '+ev.reason:' (code '+ev.code+')')+'.');
+    const r=ev.reason||'';
+    if(/proactivity/i.test(r)&&L('liveProactive').checked){ L('liveProactive').checked=false; bub('err','Ce modèle n\u2019accepte pas l\u2019option « Ignore les discussions entre vous » : je l\u2019ai décochée. Redémarre la conversation.'); }
+    else if(/affective/i.test(r)&&L('liveAffective').checked){ L('liveAffective').checked=false; bub('err','Ce modèle n\u2019accepte pas l\u2019option « S\u2019adapte au ton de la voix » : je l\u2019ai décochée. Redémarre la conversation.'); }
+    else if(/sessionResumption|contextWindowCompression/i.test(r)){ bub('err','Option de mémoire de session refusée par ce modèle : signale-le à Claude.'); }
+    stop(); };
 }
 function stop(){
   recOn=false; try{ rec&&rec.abort(); }catch(_){} rec=null; fetchCtl&&fetchCtl.abort(); fetchCtl=null;
