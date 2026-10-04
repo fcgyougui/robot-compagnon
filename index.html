@@ -1136,7 +1136,7 @@ if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
 const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
 Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
-Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse. Si ton émotion change pendant ta réponse, appelle-la juste avant la phrase concernée, pas toutes au début : chaque appel correspond à la phrase qui suit, dans l’ordre. N'annonce jamais à voix haute que tu changes d'expression.
+Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse. Si ton émotion change pendant ta réponse, appelle-la à nouveau. À chaque appel, donne dans « phrase » les premiers mots exacts de la phrase concernée : c’est ce qui permet à ton visage de changer au bon moment. N'annonce jamais à voix haute que tu changes d'expression.
 Si tu n’as pas bien compris, ou si tu n’entends qu’un bruit ou un mot isolé, demande gentiment en français de répéter. Ne réponds jamais en anglais.
 Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose ou qu’on te demande ce que tu vois, regarde la dernière image et réponds simplement.`;
 let ws=null, actx=null, micStream=null, node=null, src=null, camStream=null, camTimer=0, outGain=null;
@@ -1157,7 +1157,27 @@ this.port.postMessage({pcm:o.buffer,rms:Math.sqrt(rms/c.length)},[o.buffer]);thi
 registerProcessor('cap',Cap);`;
 
 function stopPlayback(){ for(const s of sources){ try{s.stop()}catch(_){} } sources=[]; nextT=0; speakingUntil=0; }
-let emoQ=[], emoApplied=false, boundary=false, turnT0=0, lastChunkStart=0;
+let emoQ=[], emoApplied=false, boundary=false, turnT0=0, lastChunkStart=0, turnRaw='', matchPos=0, firstTimer=0, segs=[];
+const nrm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const anchorOf=x=>nrm(x).split(' ').filter(Boolean).slice(0,3).join(' ');
+function tryAnchors(){
+  const T=nrm(turnRaw);
+  let again=true;
+  while(again&&emoQ.length){
+    again=false;
+    for(let i=0;i<emoQ.length;i++){
+      const it=emoQ[i]; if(!it.anchor) continue;
+      const pos=T.indexOf(it.anchor,matchPos);
+      if(pos>=0){
+        if(i>0) dbg(i+' émotion(s) sautée(s) : leur phrase n\u2019a pas été reconnue');
+        emoQ.splice(0,i+1); matchPos=pos+it.anchor.length;
+        let seg=segs[0]; for(const g of segs) if(g.at<=pos) seg=g;
+        const when=Math.max(actx.currentTime,seg?seg.t:lastChunkStart);
+        applyAt(it.k,when,'phrase « '+it.anchor+' » reconnue'); clearTimeout(firstTimer); again=true; break;
+      }
+    }
+  }
+}
 function dbg(msg){ if(!L('liveDbg').checked) return; const t=turnT0?((performance.now()-turnT0)/1000).toFixed(2)+' s':'—'; bub('err','['+t+'] '+msg); }
 function applyAt(k,ctxTime,why){
   const wait=actx?Math.max(0,(ctxTime-actx.currentTime)*1000):0;
@@ -1181,8 +1201,9 @@ function onMsg(m){
     const rs=[];
     for(const fc of m.toolCall.functionCalls||[]){
       let r={result:'ok'};
-      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ if(!turnT0) turnT0=performance.now(); dbg('fonction : '+k+(turnAudio?' (pendant la parole)':' (avant la parole)'));
-          if(turnAudio&&!emoApplied) applyAt(k,actx.currentTime,'appel tardif'); else emoQ.push(k); } else r={result:'émotion inconnue'}; }
+      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ if(!turnT0) turnT0=performance.now(); const anchor=anchorOf(fc.args?.phrase);
+          dbg('fonction : '+k+(anchor?' pour « '+anchor+' »':' (sans phrase)')+(turnAudio?' (pendant la parole)':' (avant la parole)'));
+          emoQ.push({k,anchor}); if(anchor&&actx) tryAnchors(); else if(turnAudio&&!emoApplied){ applyAt(emoQ.shift().k,actx.currentTime,'appel tardif'); } } else r={result:'émotion inconnue'}; }
       turnTools++; diag.tool++; showDiag();
       rs.push(emoMode==='silent'?{id:fc.id,name:fc.name,response:r,scheduling:'SILENT'}:{id:fc.id,name:fc.name,response:r});
     }
@@ -1191,13 +1212,14 @@ function onMsg(m){
   if(m.goAway){ bub('err','Google va bientôt fermer la session (durée maximale).'); }
   if(m.error){ bub('err','Erreur Gemini : '+(m.error.message||JSON.stringify(m.error))); }
   const sc=m.serverContent; if(!sc) return;
-  if(sc.interrupted){ stopPlayback(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; }
+  if(sc.interrupted){ stopPlayback(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; turnRaw=''; matchPos=0; segs=[]; }
   if(sc.inputTranscription?.text){ if(!curIn) curIn=bub('me',''); curIn.textContent+=sc.inputTranscription.text; log.scrollTop=log.scrollHeight; }
   if(sc.outputTranscription?.text){ const tx=sc.outputTranscription.text; if(!curOut) curOut=bub('bot',''); curOut.textContent+=tx; log.scrollTop=log.scrollHeight;
     dbg('texte : « '+tx.trim()+' »');
+    segs.push({at:nrm(turnRaw).length,t:turnAudio?lastChunkStart:(actx?actx.currentTime:0)}); turnRaw+=tx; if(actx) tryAnchors();
     for(const ch of tx){
       if(/[.!?…]/.test(ch)) boundary=true;
-      else if(/[\p{L}\d]/u.test(ch)&&boundary){ boundary=false; if(emoQ.length&&actx) applyAt(emoQ.shift(),Math.max(actx.currentTime,(lastChunkStart+nextT)/2),'nouvelle phrase'); }
+      else if(/[\p{L}\d]/u.test(ch)&&boundary){ boundary=false; if(emoQ.length&&!emoQ[0].anchor&&actx) applyAt(emoQ.shift().k,Math.max(actx.currentTime,(lastChunkStart+nextT)/2),'nouvelle phrase'); }
     }
   }
   for(const p of sc.modelTurn?.parts||[]){
@@ -1208,16 +1230,17 @@ function onMsg(m){
         if(lastVoiceAt){ const l=performance.now()-lastVoiceAt; lats.push(l); L('liveLat').textContent=(l/1000).toFixed(2).replace('.',',')+' s';
           L('liveAvg').textContent=(lats.reduce((a,b)=>a+b,0)/lats.length/1000).toFixed(2).replace('.',',')+' s'; L('liveN').textContent=lats.length; } }
       playPcm(p.inlineData.data);
-      if(!emoApplied&&emoQ.length) applyAt(emoQ.shift(),lastChunkStart,'début de la réponse');
+      if(!emoApplied&&emoQ.length&&!emoQ[0].anchor) applyAt(emoQ.shift().k,lastChunkStart,'début de la réponse');
+      else if(!emoApplied&&emoQ.length&&!firstTimer){ firstTimer=setTimeout(()=>{ firstTimer=0; if(!emoApplied&&emoQ.length){ dbg('phrase de la 1re émotion pas reconnue à temps'); applyAt(emoQ.shift().k,actx.currentTime,'secours'); } },1500); }
     }
   }
   if(sc.turnComplete){ diag.turn++; showDiag();
     if(!turnAudio&&turnTools) bub('err',emoMode==='silent'?'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Fonction, réponse normale » dans Émotions et redémarre.':'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Désactivées » dans Émotions et redémarre.');
     else if(!turnAudio) bub('err','Tour terminé sans son.');
     if(emoQ.length&&actx){ const n=emoQ.length, rem=Math.max(0,nextT-actx.currentTime); dbg(n+' émotion(s) sans phrase associée : réparties sur la fin');
-      emoQ.forEach((k,i)=>applyAt(k,actx.currentTime+rem*(i+1)/(n+1),'répartition')); }
+      emoQ.forEach((it,i)=>applyAt(it.k,actx.currentTime+rem*(i+1)/(n+1),'répartition')); }
     dbg('fin du tour');
-    emoQ=[]; emoApplied=false; boundary=false; turnT0=0;
+    emoQ=[]; emoApplied=false; boundary=false; turnT0=0; turnRaw=''; matchPos=0; segs=[]; clearTimeout(firstTimer); firstTimer=0;
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
 }
 async function start(){
@@ -1241,7 +1264,7 @@ async function start(){
       systemInstruction:{parts:[{text:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
       ...(emoMode==='off'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
-        parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'}},required:['emotion']}}]}]}),
+        parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'},phrase:{type:'STRING',description:'Les 3 ou 4 premiers mots de la phrase que tu vas dire avec cette émotion, exactement comme tu vas les prononcer.'}},required:['emotion','phrase']}}]}]}),
       inputAudioTranscription:{}, outputAudioTranscription:{},
       ...(L('liveVad').value==='fast'?{realtimeInputConfig:{automaticActivityDetection:{endOfSpeechSensitivity:'END_SENSITIVITY_HIGH',silenceDurationMs:600,prefixPaddingMs:300}}}:{})
     }});
