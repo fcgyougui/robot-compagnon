@@ -163,6 +163,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <select id="liveEmoMode">
             <option value="silent">Fonction, sans couper la parole</option>
             <option value="normal">Fonction, réponse normale</option>
+            <option value="symbols">Symboles muets dans le texte (expérimental)</option>
             <option value="off">Désactivées (voix seule)</option>
           </select>
         </div>
@@ -1163,6 +1164,9 @@ this.port.postMessage({pcm:o.buffer,rms:Math.sqrt(rms/c.length)},[o.buffer]);thi
 registerProcessor('cap',Cap);`;
 
 function stopPlayback(){ for(const s of sources){ try{s.stop()}catch(_){} } sources=[]; nextT=0; speakingUntil=0; }
+const SYMS={'_':'neutre','^':'content','~':'triste','°':'surpris','§':'curieux','¤':'boudeur','¨':'timide','#':'endormi','|':'ecoute'};
+const SYS_SYM=`\nTon visage est un écran. Juste avant chaque phrase, glisse UN symbole muet qui indique ton émotion, sans jamais le prononcer ni en parler : ${Object.entries(SYMS).map(([c,k])=>c+' = '+k).join(', ')}. Exemple : ^ Je suis content de te voir ! ~ Mais je suis un peu triste que tu partes.`;
+let symSeen=0;
 let voiceMode='robot', txtRaw='', txtDone=0, txtEmo=null, txtFirst=false;
 const TAG_RE=/^\s*\[([^\]\n]{1,20})\]\s*/;
 function txtFeed(final){
@@ -1247,6 +1251,7 @@ function onMsg(m){
   if(sc.outputTranscription?.text){ const tx=sc.outputTranscription.text; if(!curOut) curOut=bub('bot',''); curOut.textContent+=tx; log.scrollTop=log.scrollHeight;
     dbg('texte : « '+tx.trim()+' »');
     segs.push({at:nrm(turnRaw).length,t:turnAudio?lastChunkStart:(actx?actx.currentTime:0)}); turnRaw+=tx; if(actx) tryAnchors();
+    if(emoMode==='symbols'){ for(const ch of tx){ const k=SYMS[ch]; if(k&&actx){ symSeen++; applyAt(k,Math.max(actx.currentTime,turnAudio?lastChunkStart:actx.currentTime),'symbole '+ch); } } }
     for(const ch of tx){
       if(/[.!?…]/.test(ch)) boundary=true;
       else if(/[\p{L}\d]/u.test(ch)&&boundary){ boundary=false; if(emoQ.length&&!emoQ[0].anchor&&actx) applyAt(emoQ.shift().k,Math.max(actx.currentTime,(lastChunkStart+nextT)/2),'nouvelle phrase'); }
@@ -1276,6 +1281,8 @@ function onMsg(m){
     else if(!turnAudio) bub('err','Tour terminé sans son.');
     if(emoQ.length&&actx){ const n=emoQ.length, rem=Math.max(0,nextT-actx.currentTime); dbg(n+' émotion(s) sans phrase associée : réparties sur la fin');
       emoQ.forEach((it,i)=>applyAt(it.k,actx.currentTime+rem*(i+1)/(n+1),'répartition')); }
+    if(emoMode==='symbols'&&voiceMode!=='robot') dbg(symSeen?symSeen+' symbole(s) reçu(s) dans le texte':'aucun symbole reçu dans le texte');
+    symSeen=0;
     dbg('fin du tour');
     emoQ=[]; emoApplied=false; boundary=false; turnT0=0; turnRaw=''; matchPos=0; segs=[]; clearTimeout(firstTimer); firstTimer=0;
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
@@ -1299,8 +1306,8 @@ async function start(){
     send({setup:{
       model:'models/'+model,
       generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}}},
-      systemInstruction:{parts:[{text:voiceMode==='robot'?SYS_TXT:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
-      ...(emoMode==='off'||voiceMode==='robot'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
+      systemInstruction:{parts:[{text:voiceMode==='robot'?SYS_TXT:emoMode==='symbols'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,'')+SYS_SYM:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
+      ...(emoMode==='off'||emoMode==='symbols'||voiceMode==='robot'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'},phrase:{type:'STRING',description:'Les 3 ou 4 premiers mots de la phrase que tu vas dire avec cette émotion, exactement comme tu vas les prononcer.'}},required:['emotion','phrase']}}]}]}),
       inputAudioTranscription:{}, ...(voiceMode==='robot'?{}:{outputAudioTranscription:{}}),
