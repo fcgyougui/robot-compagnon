@@ -150,6 +150,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <label class="tg"><input type="checkbox" id="liveCam"> Caméra (activable en direct)</label>
           <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
           <label class="tg"><input type="checkbox" id="liveDbg"> Journal détaillé</label>
+          <label class="tg"><input type="checkbox" id="liveAgc"> Normalisation du micro</label>
           <label class="tg"><input type="checkbox" id="liveProactive" checked> Ignore les discussions entre vous</label>
           <label class="tg"><input type="checkbox" id="liveAffective"> S’adapte au ton de la voix</label>
         </div>
@@ -164,7 +165,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           </select>
           <label for="micThr">Seuil micro</label>
           <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="micThr" min="0" max="0.12" step="0.005" value="0.025"><span class="num" id="micThrN">0,025</span></div>
+            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="micThr" min="0" max="0.12" step="0.005" value="0"><span class="num" id="micThrN">0</span></div>
             <div class="bar" style="position:relative"><i id="micLvl"></i><span id="micThrMark" style="position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg)"></span></div>
           </div>
           <label for="liveVad">Fin de phrase</label>
@@ -1230,12 +1231,13 @@ function memPrompt(){
 }
 const MEM_TOOL={name:'memoriser',description:'Enregistre un fait important à retenir pour les prochaines conversations. Continue de parler normalement.',behavior:'NON_BLOCKING',
   parameters:{type:'OBJECT',properties:{fait:{type:'STRING',description:'Le fait à retenir, en une phrase courte, ex. « Le chien s\u2019appelle Filou ».'}},required:['fait']}};
-let resumeHandle=null, gateOpen=false, gateUntil=0, preroll=[], touchUntil=0, pauseTimer=0, lastHumanAt=0;
-L('micThr').oninput=()=>{ const v=+L('micThr').value; L('micThrN').textContent=v.toFixed(3).replace('.',','); L('micThrMark').style.left=Math.min(100,v/.12*100)+'%'; LSset('micThr',v); };
-if(LS('micThr')!=null) L('micThr').value=LS('micThr'); L('micThr').oninput();
+let resumeHandle=null, gateOpen=false, gateUntil=0, preroll=[], delayQ=[], silCache={}, touchUntil=0, pauseTimer=0, lastHumanAt=0;
+L('micThr').oninput=()=>{ const v=+L('micThr').value; L('micThrN').textContent=v?v.toFixed(3).replace('.',','):'off'; L('micThrMark').style.left=Math.min(100,v/.12*100)+'%'; LSset('micThr2',v); };
+if(LS('micThr2')!=null) L('micThr').value=LS('micThr2'); L('micThr').oninput();
 if(LS('liveListen')) L('liveListen').value=LS('liveListen');
 L('liveListen').onchange=()=>LSset('liveListen',L('liveListen').value);
 document.getElementById('cv').addEventListener('pointerdown',()=>{ if(ws&&L('liveListen').value==='touch'){ touchUntil=performance.now()+10000; setExpr('ecoute'); dbg('écoute ouverte 10 s (toucher)'); } });
+function silenceB64(n){ return silCache[n]||(silCache[n]=b64(new ArrayBuffer(n))); }
 function armPause(){
   clearTimeout(pauseTimer);
   if(L('liveListen').value!=='name'||!ws) return;
@@ -1477,7 +1479,7 @@ async function start(){
   try{
     actx=actx||new (window.AudioContext||window.webkitAudioContext)(); await actx.resume();
     if(!outGain){ outGain=actx.createGain(); outGain.connect(actx.destination); window.__liveTap=outGain; }
-    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
+    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:L('liveAgc').checked,channelCount:1}});
     await actx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET],{type:'application/javascript'})));
   }catch(e){ bub('err','Micro ou caméra refusés : '+(e.message||e)); stop(); return; }
   const model=L('liveModel').value.trim()||'gemini-3.8-live';
@@ -1503,20 +1505,20 @@ async function start(){
     }});
     src=actx.createMediaStreamSource(micStream); node=new AudioWorkletNode(actx,'cap'); src.connect(node);
     node.port.onmessage=e=>{
+      // Flux continu vers Gemini : sous le seuil (ou hors fenêtre d'écoute) on envoie du silence,
+      // pour que sa détection de fin de phrase continue de fonctionner. Retard de 200 ms pour garder le début des mots.
       const now=performance.now(), rms=e.data.rms, thr=+L('micThr').value;
       L('micLvl').style.width=Math.min(100,rms/.12*100)+'%';
       const speaking=now<speakingUntil||(voiceMode==='robot'&&(ttsActive>0||(synth&&synth.speaking)));
-      if(rms>thr&&!speaking) lastVoiceAt=now;
-      const pkt={realtimeInput:{audio:{data:b64(e.data.pcm),mimeType:'audio/pcm;rate=16000'}}};
+      if(rms>Math.max(thr,.02)&&!speaking) lastVoiceAt=now;
       const allowed=!(speaking&&L('liveHalf').checked)&&(L('liveListen').value!=='touch'||now<touchUntil);
-      if(allowed&&rms>thr) gateUntil=now+900;
-      if(allowed&&now<gateUntil){
-        if(!gateOpen){ gateOpen=true; for(const q of preroll) send(q); preroll=[]; if(L('liveListen').value==='touch') touchUntil=Math.max(touchUntil,now+4000); }
-        send(pkt);
-      } else {
-        if(gateOpen){ gateOpen=false; send({realtimeInput:{audioStreamEnd:true}}); }
-        preroll.push(pkt); if(preroll.length>3) preroll.shift();
-      }
+      if(allowed&&(thr<=0||rms>thr)) gateUntil=now+800;
+      delayQ.push({pcm:e.data.pcm,allowed});
+      if(delayQ.length<=2) return;
+      const c=delayQ.shift(), open=c.allowed&&now<gateUntil+200;
+      if(open&&!gateOpen&&L('liveListen').value==='touch') touchUntil=Math.max(touchUntil,now+4000);
+      gateOpen=open;
+      send({realtimeInput:{audio:{data:open?b64(c.pcm):silenceB64(c.pcm.byteLength),mimeType:'audio/pcm;rate=16000'}}});
     };
   };
   ws.onmessage=async ev=>{ const t=typeof ev.data==='string'?ev.data:await ev.data.text(); try{ onMsg(JSON.parse(t)); }catch(err){ console.warn(err,t); } };
@@ -1530,7 +1532,7 @@ async function start(){
     stop(); };
 }
 function stop(){
-  clearTimeout(pauseTimer); gateOpen=false; preroll=[];
+  clearTimeout(pauseTimer); gateOpen=false; preroll=[]; delayQ=[];
   recOn=false; try{ rec&&rec.abort(); }catch(_){} rec=null; fetchCtl&&fetchCtl.abort(); fetchCtl=null;
   if(ws){ const w=ws; ws=null; try{w.close(1000)}catch(_){} }
   try{ node&&node.disconnect(); src&&src.disconnect(); }catch(_){}
