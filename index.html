@@ -156,8 +156,8 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
           <label for="liveVoiceMode">Qui parle</label>
           <select id="liveVoiceMode">
+            <option value="gemini">Gemini Live : voix de Google, quota illimité</option>
             <option value="robot">Le robot : le téléphone écoute et parle, Gemini Flash-Lite réfléchit (émotions exactes)</option>
-            <option value="gemini">Gemini Live : voix de Google (émotions par fonction)</option>
           </select>
           <label for="txtModel">Modèle texte</label>
           <input id="txtModel" type="text" value="gemini-3.5-flash-lite" spellcheck="false" list="txtModels">
@@ -1149,6 +1149,7 @@ const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maiso
 Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
 Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse. Si ton émotion change pendant ta réponse, appelle-la à nouveau. À chaque appel, donne dans « phrase » les premiers mots exacts de la phrase concernée : c’est ce qui permet à ton visage de changer au bon moment. N'annonce jamais à voix haute que tu changes d'expression.
 Si tu n’as pas bien compris, ou si tu n’entends qu’un bruit ou un mot isolé, demande gentiment en français de répéter. Ne réponds jamais en anglais.
+Tu peux changer d’expression plusieurs fois dans une même réponse : quand ton émotion évolue, ou quand on te demande d’enchaîner plusieurs émotions, fais-le dans la même réponse, phrase par phrase, sans attendre le message suivant.
 Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose ou qu’on te demande ce que tu vois, regarde la dernière image et réponds simplement.`;
 let ws=null, actx=null, micStream=null, node=null, src=null, camStream=null, camTimer=0, outGain=null;
 let emoMode='silent', turnAudio=0, turnTools=0; const diag={audio:0,text:0,tool:0,turn:0,img:0};
