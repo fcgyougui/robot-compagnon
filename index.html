@@ -156,6 +156,17 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
         <div class="livegrid">
           <label for="liveFacing">Caméra</label>
           <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
+          <label for="liveListen">Écoute</label>
+          <select id="liveListen">
+            <option value="name">Seulement quand on dit « Baka », puis 20 s de conversation</option>
+            <option value="touch">Toucher son visage pour lui parler</option>
+            <option value="free">Libre : Gemini décide seul</option>
+          </select>
+          <label for="micThr">Seuil micro</label>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="micThr" min="0" max="0.12" step="0.005" value="0.025"><span class="num" id="micThrN">0,025</span></div>
+            <div class="bar" style="position:relative"><i id="micLvl"></i><span id="micThrMark" style="position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg)"></span></div>
+          </div>
           <label for="liveVad">Fin de phrase</label>
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
           <label for="liveName">Nom du robot</label>
@@ -1219,10 +1230,26 @@ function memPrompt(){
 }
 const MEM_TOOL={name:'memoriser',description:'Enregistre un fait important à retenir pour les prochaines conversations. Continue de parler normalement.',behavior:'NON_BLOCKING',
   parameters:{type:'OBJECT',properties:{fait:{type:'STRING',description:'Le fait à retenir, en une phrase courte, ex. « Le chien s\u2019appelle Filou ».'}},required:['fait']}};
-let resumeHandle=null;
+let resumeHandle=null, gateOpen=false, gateUntil=0, preroll=[], touchUntil=0, pauseTimer=0, lastHumanAt=0;
+L('micThr').oninput=()=>{ const v=+L('micThr').value; L('micThrN').textContent=v.toFixed(3).replace('.',','); L('micThrMark').style.left=Math.min(100,v/.12*100)+'%'; LSset('micThr',v); };
+if(LS('micThr')!=null) L('micThr').value=LS('micThr'); L('micThr').oninput();
+if(LS('liveListen')) L('liveListen').value=LS('liveListen');
+L('liveListen').onchange=()=>LSset('liveListen',L('liveListen').value);
+document.getElementById('cv').addEventListener('pointerdown',()=>{ if(ws&&L('liveListen').value==='touch'){ touchUntil=performance.now()+10000; setExpr('ecoute'); dbg('écoute ouverte 10 s (toucher)'); } });
+function armPause(){
+  clearTimeout(pauseTimer);
+  if(L('liveListen').value!=='name'||!ws) return;
+  const wait=Math.max(0,(actx?(nextT-actx.currentTime)*1000:0))+20000;
+  pauseTimer=setTimeout(()=>{
+    if(!ws||performance.now()-lastHumanAt<15000) { armPause(); return; }
+    send({clientContent:{turns:[{role:'user',parts:[{text:'[Note du système, ne réponds pas à cette note : la conversation est en pause. À partir de maintenant, ne réponds que si quelqu\u2019un prononce ton nom, '+(L('liveName').value.trim()||'Baka')+'. Les humains peuvent parler entre eux : reste silencieux.]'}]}],turnComplete:false}});
+    dbg('conversation en pause : Baka attend son nom');
+  },wait);
+}
 function addressRules(){
   const n=L('liveName').value.trim(); LSset('gemName',n||null);
-  return (n?`Tu t'appelles ${n}.\n`:'')+`Plusieurs personnes peuvent parler dans la pièce. Ne réponds que si on s'adresse à toi : on t'appelle${n?' par ton nom ('+n+')':''}, on te pose une question, on te parle directement, ou la conversation avec toi est en cours. Si les personnes parlent entre elles, de choses qui ne te concernent pas, reste silencieux et n'interviens pas. En cas de doute après un long silence, tu peux rester discret.\n`;
+  const strict=L('liveListen').value==='name'?`Règle stricte : au début, et après chaque pause signalée par une note du système, tu ne réponds QUE si quelqu'un prononce ton nom${n?' ('+n+')':''}. Une fois appelé, tu peux continuer la conversation normalement.\n`:'';
+  return (n?`Tu t'appelles ${n}.\n`:'')+strict+`Plusieurs personnes peuvent parler dans la pièce. Ne réponds que si on s'adresse à toi : on t'appelle${n?' par ton nom ('+n+')':''}, on te pose une question, on te parle directement, ou la conversation avec toi est en cours. Si les personnes parlent entre elles, de choses qui ne te concernent pas, reste silencieux et n'interviens pas. En cas de doute après un long silence, tu peux rester discret.\n`;
 }
 let voiceMode='gemini', txtRaw='', txtDone=0, txtEmo=null, txtFirst=false;
 const TAG_RE=/^\s*\[([^\]\n]{1,20})\]\s*/;
@@ -1330,7 +1357,7 @@ function onMsg(m){
   if(m.error){ bub('err','Erreur Gemini : '+(m.error.message||JSON.stringify(m.error))); }
   const sc=m.serverContent; if(!sc) return;
   if(sc.interrupted){ if(voiceMode==='robot'&&synth){ synth.cancel(); syll=[]; txtRaw=''; txtDone=0; txtFirst=false; } stopPlayback(); clearExprTimers(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; turnRaw=''; matchPos=0; segs=[]; }
-  if(sc.inputTranscription?.text){ if(!curIn) curIn=bub('me',''); curIn.textContent+=sc.inputTranscription.text; memTurnIn+=sc.inputTranscription.text; log.scrollTop=log.scrollHeight; }
+  if(sc.inputTranscription?.text){ if(!curIn) curIn=bub('me',''); curIn.textContent+=sc.inputTranscription.text; memTurnIn+=sc.inputTranscription.text; lastHumanAt=performance.now(); log.scrollTop=log.scrollHeight; }
   if(sc.outputTranscription?.text){ const tx=sc.outputTranscription.text; memTurnOut+=tx; if(!curOut) curOut=bub('bot',''); curOut.textContent+=tx; log.scrollTop=log.scrollHeight;
     dbg('texte : « '+tx.trim()+' »');
     segs.push({at:nrm(turnRaw).length,t:turnAudio?lastChunkStart:(actx?actx.currentTime:0)}); turnRaw+=tx; if(actx) tryAnchors();
@@ -1369,7 +1396,7 @@ function onMsg(m){
     dbg('fin du tour');
     emoQ=[]; emoApplied=false; boundary=false; turnT0=0; turnRaw=''; matchPos=0; segs=[]; clearTimeout(firstTimer); firstTimer=0;
     if(turnAudio) scheduleRest();
-    memFlushTurn();
+    memFlushTurn(); armPause(); if(L('liveListen').value==='touch'&&actx) touchUntil=Math.max(touchUntil,performance.now()+(nextT-actx.currentTime)*1000+8000);
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
 }
 // ---------- Mode « robot » : reconnaissance du téléphone + Gemini texte + voix du téléphone ----------
@@ -1476,10 +1503,20 @@ async function start(){
     }});
     src=actx.createMediaStreamSource(micStream); node=new AudioWorkletNode(actx,'cap'); src.connect(node);
     node.port.onmessage=e=>{
-      const speaking=performance.now()<speakingUntil||(voiceMode==='robot'&&(ttsActive>0||(synth&&synth.speaking)));
-      if(e.data.rms>.02&&!speaking) lastVoiceAt=performance.now();
-      if(speaking&&L('liveHalf').checked) return;
-      send({realtimeInput:{audio:{data:b64(e.data.pcm),mimeType:'audio/pcm;rate=16000'}}});
+      const now=performance.now(), rms=e.data.rms, thr=+L('micThr').value;
+      L('micLvl').style.width=Math.min(100,rms/.12*100)+'%';
+      const speaking=now<speakingUntil||(voiceMode==='robot'&&(ttsActive>0||(synth&&synth.speaking)));
+      if(rms>thr&&!speaking) lastVoiceAt=now;
+      const pkt={realtimeInput:{audio:{data:b64(e.data.pcm),mimeType:'audio/pcm;rate=16000'}}};
+      const allowed=!(speaking&&L('liveHalf').checked)&&(L('liveListen').value!=='touch'||now<touchUntil);
+      if(allowed&&rms>thr) gateUntil=now+900;
+      if(allowed&&now<gateUntil){
+        if(!gateOpen){ gateOpen=true; for(const q of preroll) send(q); preroll=[]; if(L('liveListen').value==='touch') touchUntil=Math.max(touchUntil,now+4000); }
+        send(pkt);
+      } else {
+        if(gateOpen){ gateOpen=false; send({realtimeInput:{audioStreamEnd:true}}); }
+        preroll.push(pkt); if(preroll.length>3) preroll.shift();
+      }
     };
   };
   ws.onmessage=async ev=>{ const t=typeof ev.data==='string'?ev.data:await ev.data.text(); try{ onMsg(JSON.parse(t)); }catch(err){ console.warn(err,t); } };
@@ -1493,6 +1530,7 @@ async function start(){
     stop(); };
 }
 function stop(){
+  clearTimeout(pauseTimer); gateOpen=false; preroll=[];
   recOn=false; try{ rec&&rec.abort(); }catch(_){} rec=null; fetchCtl&&fetchCtl.abort(); fetchCtl=null;
   if(ws){ const w=ws; ws=null; try{w.close(1000)}catch(_){} }
   try{ node&&node.disconnect(); src&&src.disconnect(); }catch(_){}
