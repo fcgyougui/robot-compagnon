@@ -147,6 +147,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <label class="tg"><input type="checkbox" id="liveHalf" checked> Micro coupé quand il parle</label>
           <label class="tg"><input type="checkbox" id="liveCam"> Caméra (activable en direct)</label>
           <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
+          <label class="tg"><input type="checkbox" id="liveDbg"> Journal détaillé</label>
         </div>
         <div class="livegrid">
           <label for="liveFacing">Caméra</label>
@@ -1135,7 +1136,7 @@ if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
 const EMO=Object.keys(EXPR);
 const SYS=`Tu es un petit robot de compagnie posé sur un bureau, dans une maison familiale en Bourgogne. Tu parles avec un enfant de 6 ans et ses parents. Tu n'as pas encore de nom.
 Parle toujours en français, même si tu entends un mot dans une autre langue, avec une voix douce et enjouée de petit robot. Fais des réponses courtes : une à trois phrases. Tu n'es jamais en colère ni effrayant ; si on te taquine, tu peux bouder gentiment.
-Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse, puis à nouveau dès que ton émotion change pendant que tu parles. N'annonce jamais à voix haute que tu changes d'expression.
+Ton visage est un écran. Appelle la fonction changer_expression au début de chaque réponse. Si ton émotion change pendant ta réponse, appelle-la juste avant la phrase concernée, pas toutes au début : chaque appel correspond à la phrase qui suit, dans l’ordre. N'annonce jamais à voix haute que tu changes d'expression.
 Si tu n’as pas bien compris, ou si tu n’entends qu’un bruit ou un mot isolé, demande gentiment en français de répéter. Ne réponds jamais en anglais.
 Tu reçois parfois des images de ta caméra : ce sont tes yeux. Quand on te montre quelque chose ou qu’on te demande ce que tu vois, regarde la dernière image et réponds simplement.`;
 let ws=null, actx=null, micStream=null, node=null, src=null, camStream=null, camTimer=0, outGain=null;
@@ -1156,13 +1157,21 @@ this.port.postMessage({pcm:o.buffer,rms:Math.sqrt(rms/c.length)},[o.buffer]);thi
 registerProcessor('cap',Cap);`;
 
 function stopPlayback(){ for(const s of sources){ try{s.stop()}catch(_){} } sources=[]; nextT=0; speakingUntil=0; }
+let emoQ=[], emoApplied=false, boundary=false, turnT0=0, lastChunkStart=0;
+function dbg(msg){ if(!L('liveDbg').checked) return; const t=turnT0?((performance.now()-turnT0)/1000).toFixed(2)+' s':'—'; bub('err','['+t+'] '+msg); }
+function applyAt(k,ctxTime,why){
+  const wait=actx?Math.max(0,(ctxTime-actx.currentTime)*1000):0;
+  dbg('visage → '+EXPR[k].name+' dans '+(wait/1000).toFixed(2)+' s ('+why+')');
+  if(wait>20) setTimeout(()=>setExpr(k),wait); else setExpr(k);
+  emoApplied=true;
+}
 function playPcm(b64data){
   const bin=atob(b64data), n=bin.length>>1, f=new Float32Array(n);
   for(let i=0;i<n;i++){ let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8); if(v&0x8000) v-=0x10000; f[i]=v/32768; }
   const rate=L('livePitch').checked?27600:24000;
   const buf=actx.createBuffer(1,n,24000); buf.copyToChannel(f,0);
   const s=actx.createBufferSource(); s.buffer=buf; s.playbackRate.value=rate/24000; s.connect(outGain);
-  const t=Math.max(actx.currentTime+.04,nextT); s.start(t); nextT=t+buf.duration/s.playbackRate.value;
+  const t=Math.max(actx.currentTime+.04,nextT); s.start(t); nextT=t+buf.duration/s.playbackRate.value; lastChunkStart=t;
   speakingUntil=performance.now()+(nextT-actx.currentTime)*1000+150;
   sources.push(s); s.onended=()=>{ sources=sources.filter(x=>x!==s); };
 }
@@ -1172,7 +1181,8 @@ function onMsg(m){
     const rs=[];
     for(const fc of m.toolCall.functionCalls||[]){
       let r={result:'ok'};
-      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ const wait=actx?Math.max(0,(nextT-actx.currentTime)*1000-60):0; if(wait>30) setTimeout(()=>setExpr(k),wait); else setExpr(k); } else r={result:'émotion inconnue'}; }
+      if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ if(!turnT0) turnT0=performance.now(); dbg('fonction : '+k+(turnAudio?' (pendant la parole)':' (avant la parole)'));
+          if(turnAudio&&!emoApplied) applyAt(k,actx.currentTime,'appel tardif'); else emoQ.push(k); } else r={result:'émotion inconnue'}; }
       turnTools++; diag.tool++; showDiag();
       rs.push(emoMode==='silent'?{id:fc.id,name:fc.name,response:r,scheduling:'SILENT'}:{id:fc.id,name:fc.name,response:r});
     }
@@ -1181,22 +1191,33 @@ function onMsg(m){
   if(m.goAway){ bub('err','Google va bientôt fermer la session (durée maximale).'); }
   if(m.error){ bub('err','Erreur Gemini : '+(m.error.message||JSON.stringify(m.error))); }
   const sc=m.serverContent; if(!sc) return;
-  if(sc.interrupted){ stopPlayback(); bub('err','(interrompu)'); turnStarted=false; }
+  if(sc.interrupted){ stopPlayback(); bub('err','(interrompu)'); turnStarted=false; emoQ=[]; }
   if(sc.inputTranscription?.text){ if(!curIn) curIn=bub('me',''); curIn.textContent+=sc.inputTranscription.text; log.scrollTop=log.scrollHeight; }
-  if(sc.outputTranscription?.text){ if(!curOut) curOut=bub('bot',''); curOut.textContent+=sc.outputTranscription.text; log.scrollTop=log.scrollHeight; }
+  if(sc.outputTranscription?.text){ const tx=sc.outputTranscription.text; if(!curOut) curOut=bub('bot',''); curOut.textContent+=tx; log.scrollTop=log.scrollHeight;
+    dbg('texte : « '+tx.trim()+' »');
+    for(const ch of tx){
+      if(/[.!?…]/.test(ch)) boundary=true;
+      else if(/[\p{L}\d]/u.test(ch)&&boundary){ boundary=false; if(emoQ.length&&actx) applyAt(emoQ.shift(),Math.max(actx.currentTime,(lastChunkStart+nextT)/2),'nouvelle phrase'); }
+    }
+  }
   for(const p of sc.modelTurn?.parts||[]){
     if(p.text&&!p.thought){ diag.text++; showDiag(); if(!curOut) curOut=bub('bot',''); curOut.textContent+=p.text; }
     if(p.inlineData&&/audio/.test(p.inlineData.mimeType||'')){
       diag.audio++; turnAudio++; showDiag();
-      if(!turnStarted){ turnStarted=true; curIn=null;
+      if(!turnStarted){ turnStarted=true; curIn=null; if(!turnT0) turnT0=performance.now(); dbg('premier son reçu'); boundary=false;
         if(lastVoiceAt){ const l=performance.now()-lastVoiceAt; lats.push(l); L('liveLat').textContent=(l/1000).toFixed(2).replace('.',',')+' s';
           L('liveAvg').textContent=(lats.reduce((a,b)=>a+b,0)/lats.length/1000).toFixed(2).replace('.',',')+' s'; L('liveN').textContent=lats.length; } }
       playPcm(p.inlineData.data);
+      if(!emoApplied&&emoQ.length) applyAt(emoQ.shift(),lastChunkStart,'début de la réponse');
     }
   }
   if(sc.turnComplete){ diag.turn++; showDiag();
     if(!turnAudio&&turnTools) bub('err',emoMode==='silent'?'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Fonction, réponse normale » dans Émotions et redémarre.':'Le robot a changé d’expression mais n’a renvoyé aucun son. Raccroche, choisis « Désactivées » dans Émotions et redémarre.');
     else if(!turnAudio) bub('err','Tour terminé sans son.');
+    if(emoQ.length&&actx){ const n=emoQ.length, rem=Math.max(0,nextT-actx.currentTime); dbg(n+' émotion(s) sans phrase associée : réparties sur la fin');
+      emoQ.forEach((k,i)=>applyAt(k,actx.currentTime+rem*(i+1)/(n+1),'répartition')); }
+    dbg('fin du tour');
+    emoQ=[]; emoApplied=false; boundary=false; turnT0=0;
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
 }
 async function start(){
@@ -1263,6 +1284,7 @@ async function camOn(){
 function camOff(){ clearInterval(camTimer); camTimer=0; camStream&&camStream.getTracks().forEach(t=>t.stop()); camStream=null; L('liveVideo').hidden=true; }
 L('liveCam').onchange=()=>{ if(L('liveCam').checked){ if(ws) camOn(); } else camOff(); };
 L('liveFacing').onchange=()=>{ if(camStream){ camOff(); camOn(); } };
+window.__liveTest={onMsg,init(){ actx=actx||new AudioContext(); if(!outGain){ outGain=actx.createGain(); outGain.connect(actx.destination); window.__liveTap=outGain; } }};
 L('liveStart').onclick=start; L('liveStop').onclick=stop;
 L('liveRemember').onchange=()=>{ if(!L('liveRemember').checked) LSset('gemKey',null); };
 })();
