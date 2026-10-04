@@ -148,12 +148,16 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           <label class="tg"><input type="checkbox" id="liveCam"> Caméra (activable en direct)</label>
           <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
           <label class="tg"><input type="checkbox" id="liveDbg"> Journal détaillé</label>
+          <label class="tg"><input type="checkbox" id="liveProactive" checked> Ignore les discussions entre vous</label>
+          <label class="tg"><input type="checkbox" id="liveAffective"> S’adapte au ton de la voix</label>
         </div>
         <div class="livegrid">
           <label for="liveFacing">Caméra</label>
           <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
           <label for="liveVad">Fin de phrase</label>
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
+          <label for="liveName">Nom du robot</label>
+          <input id="liveName" type="text" placeholder="facultatif, ex. Pixel" spellcheck="false" autocomplete="off">
           <label for="liveVoiceMode">Qui parle</label>
           <select id="liveVoiceMode">
             <option value="gemini">Gemini Live : voix de Google, quota illimité</option>
@@ -1148,6 +1152,7 @@ if(LS('gemKey')){ L('liveKey').value=LS('gemKey'); L('liveRemember').checked=tru
 if(LS('gemVoice')) L('liveVoice').value=LS('gemVoice');
 if(LS('gemModel')) L('liveModel').value=LS('gemModel');
 if(LS('gemEmo')) L('liveEmoMode').value=LS('gemEmo');
+if(LS('gemName')) L('liveName').value=LS('gemName');
 if(LS('gemVoiceMode')) L('liveVoiceMode').value=LS('gemVoiceMode');
 if(LS('gemTxtModel')) L('txtModel').value=LS('gemTxtModel');
 const EMO=Object.keys(EXPR);
@@ -1178,6 +1183,10 @@ function stopPlayback(){ for(const s of sources){ try{s.stop()}catch(_){} } sour
 const SYMS={'_':'neutre','^':'content','~':'triste','°':'surpris','§':'curieux','¤':'boudeur','¨':'timide','#':'endormi','|':'ecoute'};
 const SYS_SYM=`\nTon visage est un écran. Juste avant chaque phrase, glisse UN symbole muet qui indique ton émotion, sans jamais le prononcer ni en parler : ${Object.entries(SYMS).map(([c,k])=>c+' = '+k).join(', ')}. Exemple : ^ Je suis content de te voir ! ~ Mais je suis un peu triste que tu partes.`;
 let symSeen=0;
+function addressRules(){
+  const n=L('liveName').value.trim(); LSset('gemName',n||null);
+  return (n?`Tu t'appelles ${n}.\n`:'')+`Plusieurs personnes peuvent parler dans la pièce. Ne réponds que si on s'adresse à toi : on t'appelle${n?' par ton nom ('+n+')':''}, on te pose une question, on te parle directement, ou la conversation avec toi est en cours. Si les personnes parlent entre elles, de choses qui ne te concernent pas, reste silencieux et n'interviens pas. En cas de doute après un long silence, tu peux rester discret.\n`;
+}
 let voiceMode='gemini', txtRaw='', txtDone=0, txtEmo=null, txtFirst=false;
 const TAG_RE=/^\s*\[([^\]\n]{1,20})\]\s*/;
 function txtFeed(final){
@@ -1412,8 +1421,9 @@ async function start(){
   ws.onopen=()=>{
     send({setup:{
       model:'models/'+model,
-      generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}}},
-      systemInstruction:{parts:[{text:voiceMode==='robot'?SYS_TXT:emoMode==='symbols'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,'')+SYS_SYM:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS}]},
+      generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}},...(L('liveAffective').checked?{enableAffectiveDialog:true}:{})},
+      ...(L('liveProactive').checked&&voiceMode!=='robot'?{proactivity:{proactiveAudio:true}}:{}),
+      systemInstruction:{parts:[{text:addressRules()+(voiceMode==='robot'?SYS_TXT:emoMode==='symbols'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,'')+SYS_SYM:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS)}]},
       ...(emoMode==='off'||emoMode==='symbols'||voiceMode==='robot'?{}:{tools:[{functionDeclarations:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'},phrase:{type:'STRING',description:'Les 3 ou 4 premiers mots de la phrase que tu vas dire avec cette émotion, exactement comme tu vas les prononcer.'}},required:['emotion','phrase']}}]}]}),
