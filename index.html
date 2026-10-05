@@ -293,6 +293,12 @@ const STYLES={
   led:      {name:'LED',       desc:'Une matrice de 28 × 24 LED rondes, façon vieux robot de science-fiction.'},
   garcon:   {name:'Manga garçon', desc:'Un personnage original façon anime : sourcils expressifs, reflets dans les yeux et gags de manga (goutte de sueur, bulle de sommeil, larmes en cascade).'},
   fille:    {name:'Manga fille',  desc:'Une héroïne originale façon anime : grands yeux à cils, barrette fleur et les mêmes gags de manga.'},
+  noyau:    {name:'Noyau',   desc:'Techno. Un cœur lumineux et des anneaux d\u2019affichage tête haute : ils s\u2019ouvrent et tournent vite quand il est content, s\u2019affaissent et ralentissent quand il est triste.'},
+  visiere:  {name:'Visière', desc:'Techno. Une bande lumineuse façon casque futuriste : courbée vers le haut = sourire, vers le bas = tristesse, très fine = bouderie, grande ouverte = surprise. Le balayage montre où il regarde.'},
+  oscillo:  {name:'Oscillo', desc:'Techno. Des yeux et une bouche tracés en signaux d\u2019oscilloscope, avec la rémanence des vieux écrans.'},
+  aurore:   {name:'Aurore',  desc:'Doux. Des lumières floues sur une aurore boréale qui prend la couleur de l\u2019émotion ; les particules montent dans la joie et tombent en pluie dans la tristesse.'},
+  lotus:    {name:'Lotus',   desc:'Doux. Une fleur dont les pétales s\u2019ouvrent grand dans la joie, se referment et penchent dans la tristesse, frémissent dans la surprise.'},
+  encre:    {name:'Encre',   desc:'Doux. Un visage peint au pinceau sur papier, avec un lavis d\u2019aquarelle à la couleur de l\u2019émotion.'},
   craie:    {name:'Craie',     desc:'Un dessin à la craie sur ardoise, dont le trait tremble comme dans un dessin animé fait main.'},
 };
 let style='kawaii';
@@ -911,6 +917,246 @@ function drawManga(g,ch){
   }
 }
 
+// ---------- Styles adultes (Noyau, Visière, Oscillo, Aurore, Lotus, Encre) ----------
+// Chaque émotion = valence (triste ↔ content), énergie, ouverture, côté (asymétrie). Interpolés en douceur.
+const AD_EMO={
+  neutre:{v:.1,a:.35,o:.5,s:0}, content:{v:1,a:.75,o:.85,s:0}, curieux:{v:.3,a:.55,o:.7,s:.7},
+  surpris:{v:.2,a:1,o:1,s:0}, triste:{v:-1,a:.12,o:.3,s:0}, ecoute:{v:.25,a:.45,o:.65,s:0},
+  boudeur:{v:-.55,a:.3,o:.22,s:-.9}, timide:{v:.5,a:.22,o:.35,s:.35}, endormi:{v:0,a:0,o:.04,s:0}
+};
+const ad={v:.1,a:.35,o:.5,s:0,ph:0,ph2:0,flash:0,last:'neutre'};
+function adUpdate(dt){
+  const t=AD_EMO[shownKey]||AD_EMO.neutre, k=1-Math.exp(-dt/Math.max(.05,TRANS/3));
+  for(const p of ['v','a','o','s']) ad[p]+=(t[p]-ad[p])*k;
+  if(shownKey!==ad.last){ if(shownKey==='surpris'||shownKey==='content') ad.flash=1; ad.last=shownKey; }
+  ad.flash=Math.max(0,ad.flash-dt*2.2);
+  const spd=reduce?0:(.15+ad.a*1.9);
+  ad.ph+=dt*spd; ad.ph2+=dt*(reduce?0:.6+ad.a);
+}
+const emoRGB=(k=1)=>[cur.cr*cur.dim*k,cur.cg*cur.dim*k,cur.cb*cur.dim*k];
+const rgba=(c,a)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+const lighten=(c,t)=>c.map(x=>x+(255-x)*t);
+
+// 1. NOYAU — cœur lumineux et anneaux d'affichage tête haute
+function drawNoyau(g){
+  const c=emoRGB(), cx=W/2+gx*14, cy=98+gy*8+breath, open=ad.o, v=ad.v;
+  const bg=g.createRadialGradient(cx,cy,10,cx,cy,190); bg.addColorStop(0,rgba(c.map(x=>x*.16),1)); bg.addColorStop(1,'#020407');
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+  // graduations fixes en bord
+  g.strokeStyle=rgba(c,.18); g.lineWidth=1;
+  for(let i=0;i<72;i++){ const an=i/72*Math.PI*2, r1=98, r2=i%6?102:108; g.beginPath(); g.moveTo(cx+Math.cos(an)*r1,cy+Math.sin(an)*r1*.86); g.lineTo(cx+Math.cos(an)*r2,cy+Math.sin(an)*r2*.86); g.stroke(); }
+  g.lineCap='round';
+  const expand=1+ad.flash*.25+(open-.5)*.18;
+  const rings=[{r:36,n:3,w:5,dir:1,len:.62},{r:56,n:5,w:3.5,dir:-1,len:.42},{r:76,n:9,w:2.5,dir:.6,len:.3}];
+  const droop=Math.max(0,-v), side=ad.s;
+  g.shadowColor=rgba(lighten(c,.3),.9); g.shadowBlur=10;
+  rings.forEach((R,ri)=>{
+    const r=R.r*expand*(1-droop*.08*ri);
+    for(let i=0;i<R.n;i++){
+      let a0=i/R.n*Math.PI*2+ad.ph*R.dir*(1+ri*.3);
+      // tristesse : les segments glissent vers le bas ; bouderie : vers un côté
+      const tgt=droop>0?Math.PI/2:(side<0?Math.PI:0);
+      const pull=droop*.55+Math.abs(Math.min(0,side))*.5;
+      let d=Math.atan2(Math.sin(tgt-a0),Math.cos(tgt-a0)); a0+=d*pull;
+      const len=R.len*(2*Math.PI/R.n)*(.35+open*.75)*(1-droop*.35);
+      g.strokeStyle=rgba(lighten(c,.15),.55+.35*(1-ri/3)); g.lineWidth=R.w;
+      g.beginPath(); g.ellipse(cx,cy,r,r*.9,0,a0,a0+len); g.stroke();
+    }
+  });
+  g.shadowBlur=0;
+  // cœur
+  const cr=(13+open*7+talk*6)*(1+ad.flash*.4);
+  const sq=1-bl*.85;
+  const core=g.createRadialGradient(cx+gx*4,cy+gy*3,0,cx,cy,cr*2.4);
+  core.addColorStop(0,'rgba(255,255,255,1)'); core.addColorStop(.35,rgba(lighten(c,.4),1)); core.addColorStop(1,rgba(c,0));
+  g.save(); g.translate(cx,cy); g.scale(1,sq); g.translate(-cx,-cy);
+  g.fillStyle=core; g.beginPath(); g.arc(cx,cy,cr*2.4,0,Math.PI*2); g.fill();
+  g.restore();
+  // bouche : ligne d'onde sous le cœur, courbée selon la valence, vibrante avec la voix
+  const my=cy+112, mw=60+open*26;
+  g.strokeStyle=rgba(lighten(c,.3),.95); g.lineWidth=2.5; g.shadowColor=rgba(c,1); g.shadowBlur=8;
+  g.beginPath();
+  for(let i=0;i<=40;i++){ const t=i/40, x=cx-mw/2+t*mw, e=(t-.5)*2;
+    const y=my+v*10*(1-e*e)-v*5+side*4*e+Math.sin(t*Math.PI*6+NOW/60)*talk*14*Math.sin(t*Math.PI);
+    i?g.lineTo(x,y):g.moveTo(x,y); }
+  g.stroke(); g.shadowBlur=0;
+  if(ad.flash>0){ g.fillStyle=`rgba(255,255,255,${(ad.flash*.35).toFixed(3)})`; g.fillRect(0,0,W,H); }
+  mouthOpen=Math.min(1,talk/.6);
+}
+
+// 2. VISIÈRE — une bande lumineuse qui se déforme
+function drawVisiere(g){
+  const c=emoRGB(), v=ad.v, open=ad.o, s=ad.s, cy=112+gy*10+breath;
+  g.fillStyle='#030506'; g.fillRect(0,0,W,H);
+  g.fillStyle=rgba(c,.05); for(let y=0;y<H;y+=4) g.fillRect(0,y,W,1);
+  // coins de visée
+  g.strokeStyle=rgba(c,.45); g.lineWidth=2;
+  for(const [x,y,dx,dy] of [[14,14,1,1],[W-14,14,-1,1],[14,H-14,1,-1],[W-14,H-14,-1,-1]]){ g.beginPath(); g.moveTo(x+dx*16,y); g.lineTo(x,y); g.lineTo(x,y+dy*16); g.stroke(); }
+  // colonnes de données
+  g.fillStyle=rgba(c,.35);
+  for(const sd of [-1,1]) for(let i=0;i<7;i++){ const y=(i*26+ad.ph2*40*sd+400)%(H-40)+20, w=6+((i*37)%14); g.fillRect(sd<0?24:W-24-w,y,w,3); }
+  // bande
+  const L=W/2-108, R=W/2+108, h=(6+open*44+talk*14)*(1-bl*.92);
+  const curve=v*26, hl=h*(1-Math.max(0,s)*.45), hr=h*(1+Math.min(0,s)*.45);
+  const topY=x=>{ const e=(x-W/2)/108; return cy-(hl+(hr-hl)*(e+1)/2)/2 - curve*(e*e) + curve*.35; };
+  const botY=x=>{ const e=(x-W/2)/108; return cy+(hl+(hr-hl)*(e+1)/2)/2 - curve*(e*e) + curve*.35; };
+  g.beginPath(); for(let x=L;x<=R;x+=4) x===L?g.moveTo(x,topY(x)):g.lineTo(x,topY(x)); for(let x=R;x>=L;x-=4) g.lineTo(x,botY(x)); g.closePath();
+  const gr=g.createLinearGradient(0,cy-40,0,cy+40); gr.addColorStop(0,rgba(c.map(x=>x*.35),1)); gr.addColorStop(.5,rgba(c,1)); gr.addColorStop(1,rgba(c.map(x=>x*.35),1));
+  g.shadowColor=rgba(c,1); g.shadowBlur=18; g.fillStyle=gr; g.fill(); g.shadowBlur=0;
+  // balayage = regard
+  g.save(); g.clip();
+  const sx=W/2+gx*86+Math.sin(ad.ph2*1.3)*(shownKey==='curieux'?40:6);
+  const sg=g.createRadialGradient(sx,cy,0,sx,cy,46); sg.addColorStop(0,'rgba(255,255,255,.95)'); sg.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=sg; g.fillRect(sx-50,cy-60,100,120);
+  // égaliseur pendant la parole
+  if(talk>.03){ g.fillStyle='rgba(0,0,0,.35)'; for(let i=0;i<18;i++){ const x=L+16+i*11, hh=h*.8*Math.abs(Math.sin(i*1.7+NOW/90))*talk*1.6; g.fillRect(x,cy-hh/2,3,hh); } }
+  g.restore();
+  if(ad.flash>0){ g.fillStyle=`rgba(255,255,255,${(ad.flash*.3).toFixed(3)})`; g.fillRect(0,0,W,H); }
+  mouthOpen=Math.min(1,talk/.6);
+}
+
+// 3. OSCILLO — traces d'oscilloscope à rémanence
+let oscBuf=null;
+function drawOscillo(g){
+  if(!oscBuf){ oscBuf=document.createElement('canvas'); oscBuf.width=W; oscBuf.height=H; }
+  const o=oscBuf.getContext('2d'), c=lighten(emoRGB(),.15), v=ad.v, open=ad.o;
+  o.fillStyle='rgba(2,8,5,.32)'; o.fillRect(0,0,W,H);
+  o.lineCap='round'; o.lineJoin='round'; o.shadowColor=rgba(c,1); o.shadowBlur=8; o.strokeStyle=rgba(c,.95); o.lineWidth=2.2;
+  const ex=gx*14, ey=gy*10+breath, k=shownKey;
+  const noise=i=>Math.sin(i*12.9+NOW/23)*.6*(.3+ad.a);
+  for(const sd of [-1,1]){
+    const cx=W/2+sd*62+ex, cy=92+ey, r=24*(.55+open*.6);
+    o.beginPath();
+    if(k==='content'||k==='timide'){ for(let i=0;i<=30;i++){ const t=Math.PI+.4+i/30*(Math.PI-.8); const x=cx+Math.cos(t)*r, y=cy+12+Math.sin(t)*r*.8+noise(i); i?o.lineTo(x,y):o.moveTo(x,y);} }
+    else if(k==='endormi'||bl>.6){ for(let i=0;i<=30;i++){ const t=.5+i/30*(Math.PI-1); const x=cx+Math.cos(t)*r, y=cy-8+Math.sin(t)*r*.5+noise(i); i?o.lineTo(x,y):o.moveTo(x,y);} }
+    else { const ry=r*(1-bl*.9)*(k==='boudeur'?.45:1); const tilt=(k==='triste'?-.35:0)*sd;
+      for(let i=0;i<=48;i++){ const t=i/48*Math.PI*2; const x=cx+Math.cos(t)*r+noise(i); let y=cy+Math.sin(t)*ry+noise(i+7); y+=Math.cos(t)*r*tilt; i?o.lineTo(x,y):o.moveTo(x,y);} o.closePath();
+      if(k!=='boudeur'){ o.moveTo(cx+gx*8+4,cy+gy*6); o.arc(cx+gx*8,cy+gy*6,4,0,Math.PI*2); } }
+    o.stroke();
+  }
+  // bouche : signal
+  const my=176+ey, L=W/2-70, Rr=W/2+70;
+  o.beginPath();
+  for(let i=0;i<=80;i++){ const t=i/80, x=L+t*(Rr-L), e=(t-.5)*2;
+    const y=my - v*16*(e*e) + v*8 + Math.sin(t*Math.PI*8+NOW/40)*talk*30*Math.sin(t*Math.PI) + noise(i)*1.5 + (k==='surpris'?Math.sin(t*Math.PI*2)*-10*Math.sin(t*Math.PI):0);
+    i?o.lineTo(x,y):o.moveTo(x,y); }
+  o.stroke(); o.shadowBlur=0;
+  g.drawImage(oscBuf,0,0);
+  g.strokeStyle='rgba(60,255,140,.06)'; g.lineWidth=1;
+  for(let x=0;x<=W;x+=28){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,H); g.stroke(); }
+  for(let y=0;y<=H;y+=24){ g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
+  mouthOpen=Math.min(1,talk/.6);
+}
+
+// 4. AURORE — lumières douces sur une aurore qui ondule
+let aurBuf=null, aurImg=null; const AW=70, AH=60; const parts=[];
+for(let i=0;i<42;i++) parts.push({x:Math.random()*W,y:Math.random()*H,r:.8+Math.random()*1.8,sp:.5+Math.random()});
+function drawAurore(g,dt){
+  if(!aurBuf){ aurBuf=document.createElement('canvas'); aurBuf.width=AW; aurBuf.height=AH; aurImg=aurBuf.getContext('2d').createImageData(AW,AH); }
+  const c=emoRGB(), c2=[c[1]*.6+60,c[2]*.5+40,c[0]*.6+90], d=aurImg.data, t=ad.ph2*.8, en=.4+ad.a*.6;
+  for(let y=0;y<AH;y++) for(let x=0;x<AW;x++){
+    const u=x/AW, w=y/AH;
+    const band=Math.sin(u*5+t+Math.sin(w*3+t*.7)*1.5)*.5+.5, band2=Math.sin(u*3-t*.6+w*4)*.5+.5;
+    const vert=Math.exp(-Math.pow((w-.35-band*.25)*3.2,2));
+    const m=vert*(.55+.45*band2)*en, i=(y*AW+x)*4;
+    d[i]=6+c[0]*m*.8+c2[0]*band2*m*.35; d[i+1]=8+c[1]*m*.8+c2[1]*band2*m*.35; d[i+2]=18+c[2]*m*.8+c2[2]*band2*m*.35; d[i+3]=255;
+  }
+  aurBuf.getContext('2d').putImageData(aurImg,0,0);
+  g.imageSmoothingEnabled=true; g.drawImage(aurBuf,0,0,W,H);
+  // particules : montent quand c'est gai, tombent en pluie quand c'est triste
+  const vy=ad.v>.2?-(ad.v*30):ad.v<-.3?(-ad.v*70):-6;
+  for(const p of parts){ p.y+=vy*p.sp*dt; p.x+=Math.sin(NOW/1000+p.y*.05)*.2; if(p.y<-4) p.y=H+4; if(p.y>H+4) p.y=-4;
+    g.fillStyle=`rgba(255,255,255,${(.25+ad.a*.35).toFixed(2)})`;
+    if(ad.v<-.3){ g.fillRect(p.x,p.y,1.2,5*p.sp); } else { g.beginPath(); g.arc(p.x,p.y,p.r,0,Math.PI*2); g.fill(); } }
+  // yeux : halos
+  const ex=gx*14, ey=gy*10+breath, open=ad.o, v=ad.v;
+  for(const sd of [-1,1]){
+    const x=W/2+sd*54+ex, y=96+ey+(v<0?6:0), r=(18+open*12)*(1+ad.flash*.3), sq=Math.max(.08,(1-bl*.95)*(.4+open*.7));
+    if(shownKey==='content'||shownKey==='timide'){ g.save(); g.lineCap='round'; g.shadowColor=rgba(lighten(c,.5),1); g.shadowBlur=16; g.strokeStyle='rgba(255,255,255,.9)'; g.lineWidth=7;
+      g.beginPath(); g.arc(x,y+r*.5,r*.85,Math.PI+.5,2*Math.PI-.5); g.stroke(); g.restore(); continue; }
+    const h=g.createRadialGradient(x,y,0,x,y,r*1.7); h.addColorStop(0,'rgba(255,255,255,.95)'); h.addColorStop(.4,rgba(lighten(c,.6),.75)); h.addColorStop(1,rgba(c,0));
+    g.save(); g.translate(x,y); g.scale(1,sq); g.translate(-x,-y); g.fillStyle=h; g.beginPath(); g.arc(x,y,r*1.7,0,Math.PI*2); g.fill(); g.restore();
+  }
+  // bouche : courbe lumineuse douce
+  const mx=W/2+gx*6, my=170+ey, mw=34+open*18;
+  g.lineCap='round'; g.shadowColor=rgba(lighten(c,.5),1); g.shadowBlur=14; g.strokeStyle='rgba(255,255,255,.85)';
+  if(talk>.04){ g.lineWidth=3; g.fillStyle='rgba(255,255,255,.18)'; g.beginPath(); g.ellipse(mx,my+2,12+talk*6,3+talk*18,0,0,Math.PI*2); g.fill(); g.stroke(); }
+  else { g.lineWidth=4; g.beginPath(); g.moveTo(mx-mw/2,my); g.quadraticCurveTo(mx,my+v*18,mx+mw/2,my-ad.s*6); g.stroke(); }
+  g.shadowBlur=0;
+  if(ad.flash>0){ g.fillStyle=`rgba(255,255,255,${(ad.flash*.25).toFixed(3)})`; g.fillRect(0,0,W,H); }
+  mouthOpen=Math.min(1,talk/.6);
+}
+
+// 5. LOTUS — une fleur qui s'ouvre et se referme
+function petal(g,len,wid){ g.beginPath(); g.moveTo(0,0); g.bezierCurveTo(wid,-len*.3,wid*.8,-len*.85,0,-len); g.bezierCurveTo(-wid*.8,-len*.85,-wid,-len*.3,0,0); }
+function drawLotus(g){
+  const c=emoRGB(), open=ad.o, v=ad.v, cx=W/2+gx*10, cy=122+gy*8+breath;
+  const bg=g.createRadialGradient(cx,cy,10,cx,cy,200); bg.addColorStop(0,'#2a1530'); bg.addColorStop(1,'#0c0710'); g.fillStyle=bg; g.fillRect(0,0,W,H);
+  const halo=g.createRadialGradient(cx,cy,0,cx,cy,120); halo.addColorStop(0,rgba(c,.28)); halo.addColorStop(1,rgba(c,0)); g.fillStyle=halo; g.fillRect(0,0,W,H);
+  const droop=Math.max(0,-v), tremble=shownKey==='surpris'&&!reduce?Math.sin(NOW/40)*.04:0;
+  const layers=[{n:10,len:92,wid:30,a:.55,off:0,lift:.25},{n:8,len:74,wid:26,a:.75,off:Math.PI/8,lift:.12},{n:6,len:52,wid:20,a:.95,off:0,lift:0}];
+  layers.forEach((Ly,li)=>{
+    for(let i=0;i<Ly.n;i++){
+      let an=Ly.off+i/Ly.n*Math.PI*2+ad.ph*.08*(li%2?-1:1);
+      // gravité : la tristesse fait pencher les pétales vers le bas
+      const dn=Math.atan2(Math.sin(Math.PI-an),Math.cos(Math.PI-an)); an+=dn*droop*.18;
+      const len=Ly.len*(.42+open*.62)*(1+tremble)*(1+Math.sin(NOW/900+i)*.015), wid=Ly.wid*(.55+open*.55);
+      g.save(); g.translate(cx,cy); g.rotate(an+tremble*i);
+      const pg=g.createLinearGradient(0,0,0,-len); pg.addColorStop(0,rgba(lighten(c,.15),Ly.a)); pg.addColorStop(1,rgba(lighten([255,170,205],.2),Ly.a*.85));
+      g.fillStyle=pg; g.strokeStyle=`rgba(255,255,255,${(.15+li*.08).toFixed(2)})`; g.lineWidth=1;
+      petal(g,len,wid); g.fill(); g.stroke(); g.restore();
+    }
+  });
+  // cœur avec un petit visage
+  const r=20+talk*10;
+  const core=g.createRadialGradient(cx,cy,0,cx,cy,r); core.addColorStop(0,'#fff8e6'); core.addColorStop(1,rgba(lighten(c,.5),1));
+  g.fillStyle=core; g.beginPath(); g.arc(cx,cy,r,0,Math.PI*2); g.fill();
+  g.fillStyle='#4a2433'; g.strokeStyle='#4a2433'; g.lineWidth=2; g.lineCap='round';
+  for(const sd of [-1,1]){ const x=cx+sd*7+gx*2, y=cy-4+gy*2;
+    if(shownKey==='content'||shownKey==='endormi'||bl>.5){ g.beginPath(); g.arc(x,y+(shownKey==='content'?2:-2),3,shownKey==='content'?Math.PI:0,shownKey==='content'?0:Math.PI); g.stroke(); }
+    else { g.beginPath(); g.ellipse(x,y,2.2,2.8*(shownKey==='surpris'?1.3:1),0,0,Math.PI*2); g.fill(); } }
+  if(talk>.04){ g.beginPath(); g.ellipse(cx,cy+7,3,2+talk*6,0,0,Math.PI*2); g.fill(); }
+  else { g.beginPath(); g.moveTo(cx-5,cy+7); g.quadraticCurveTo(cx,cy+7+v*4,cx+5,cy+7); g.stroke(); }
+  mouthOpen=Math.min(1,talk/.6);
+}
+
+// 6. ENCRE — visage peint au pinceau sur papier
+let paper=null;
+function brush(g,pts,w,col){ // trait effilé : épais au milieu, fin aux extrémités
+  g.fillStyle=col; const n=pts.length-1;
+  for(let i=0;i<=n;i++){ const t=i/n, r=Math.max(.6,w*Math.sin(Math.PI*Math.min(1,t*1.05))); g.beginPath(); g.arc(pts[i][0],pts[i][1],r,0,Math.PI*2); g.fill(); }
+}
+function curvePts(x0,y0,cx1,cy1,x1,y1,n=26){ const p=[]; for(let i=0;i<=n;i++){ const t=i/n, a=1-t; p.push([a*a*x0+2*a*t*cx1+t*t*x1, a*a*y0+2*a*t*cy1+t*t*y1]); } return p; }
+function drawEncre(g){
+  if(!paper){ paper=document.createElement('canvas'); paper.width=W; paper.height=H; const p=paper.getContext('2d'); p.fillStyle='#f3ede1'; p.fillRect(0,0,W,H);
+    for(let i=0;i<2600;i++){ p.fillStyle=`rgba(120,100,70,${(Math.random()*.06).toFixed(3)})`; p.fillRect(Math.random()*W,Math.random()*H,1+Math.random()*2,1); } }
+  g.drawImage(paper,0,0);
+  const c=emoRGB(), v=ad.v, open=ad.o, ex=gx*10, ey=gy*8+breath, k=shownKey, ink='rgba(28,24,30,.92)';
+  // lavis d'aquarelle couleur émotion
+  const wash=g.createRadialGradient(W*.78,H*.2,5,W*.78,H*.2,130); wash.addColorStop(0,rgba(c,.35)); wash.addColorStop(1,rgba(c,0)); g.fillStyle=wash; g.fillRect(0,0,W,H);
+  for(const sd of [-1,1]){ const bx=W/2+sd*74+ex, by=146+ey; const b=g.createRadialGradient(bx,by,0,bx,by,24); b.addColorStop(0,`rgba(235,120,130,${(.18+cur.blush*.25).toFixed(2)})`); b.addColorStop(1,'rgba(235,120,130,0)'); g.fillStyle=b; g.fillRect(bx-26,by-26,52,52); }
+  // sourcils
+  for(const sd of [-1,1]){ const x=W/2+sd*58+ex, y=62+ey-(open-.5)*10, inner=(-v*8)+(k==='boudeur'?10:0)+(sd>0?ad.s*-6:0);
+    brush(g,curvePts(x-sd*20,y+inner*.6*(sd>0?1:1),x,y-4,x+sd*20,y-inner*.3),3.4,ink); }
+  // yeux
+  for(const sd of [-1,1]){ const x=W/2+sd*58+ex, y=98+ey;
+    if(k==='content'||k==='timide'){ brush(g,curvePts(x-18,y+6,x,y-14,x+18,y+6),4,ink); }
+    else if(k==='endormi'||bl>.55){ brush(g,curvePts(x-18,y-2,x,y+12,x+18,y-2),3.6,ink); }
+    else { const ry=(10+open*8)*(k==='boudeur'?.55:1);
+      g.fillStyle=ink; g.beginPath(); g.ellipse(x+gx*3,y+gy*3,9+open*3,ry,0,0,Math.PI*2); g.fill();
+      g.fillStyle='rgba(243,237,225,.95)'; g.beginPath(); g.arc(x+gx*3-3,y+gy*3-ry*.4,2.6,0,Math.PI*2); g.fill();
+      if(k==='triste'){ g.fillStyle=rgba([110,160,220],.5); g.beginPath(); g.ellipse(x+sd*-4,y+ry+8,3,5,0,0,Math.PI*2); g.fill(); } } }
+  // bouche
+  const mx=W/2+ex*.6, my=170+ey;
+  if(talk>.04){ g.fillStyle=ink; g.beginPath(); g.ellipse(mx,my+2,9+talk*4,3+talk*16,0,0,Math.PI*2); g.fill(); }
+  else if(k==='surpris'){ g.strokeStyle=ink; g.lineWidth=3; g.beginPath(); g.ellipse(mx,my,7,9,0,0,Math.PI*2); g.stroke(); }
+  else brush(g,curvePts(mx-22,my-v*3,mx,my+v*16,mx+22,my-v*3-ad.s*5),3.2,ink);
+  // sceau rouge
+  g.fillStyle='rgba(180,40,40,.82)'; g.fillRect(W-34,H-40,18,22); g.fillStyle='#f3ede1'; g.font='700 12px serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('B',W-25,H-29);
+  mouthOpen=Math.min(1,talk/.6);
+}
+const ADULT={noyau:drawNoyau,visiere:drawVisiere,oscillo:drawOscillo,aurore:drawAurore,lotus:drawLotus,encre:drawEncre};
+
 // ---------- Distance transform (pour Néon et Craie) ----------
 const N=W*H, mask=new Uint8Array(N), dIn=new Float32Array(N), dOut=new Float32Array(N);
 function chamfer(d){
@@ -993,6 +1239,7 @@ function frame(now){
   fpsAcc+=dt; fpsN++; if(now-fpsT>500){ $('fps').textContent=Math.round(fpsN/fpsAcc)+' img/s (navigateur)'; fpsAcc=0; fpsN=0; fpsT=now; }
 
   const a=1-Math.exp(-dt/(TRANS/3));
+  adUpdate(dt);
   for(const k in tgt) cur[k]+=(tgt[k]-cur[k])*a;
 
   if(now>manualUntil && $('autoGaze').checked && now>nextSaccade){
@@ -1021,6 +1268,7 @@ function frame(now){
   } else if(style==='mochi'||style==='chaton'||style==='nuage'){
     ctx.setTransform(K,0,0,K,0,0);
     if(style==='mochi') drawMochi(ctx); else if(style==='chaton') drawChaton(ctx); else drawNuage(ctx);
+  } else if(ADULT[style]){ ctx.setTransform(K,0,0,K,0,0); ADULT[style](ctx,dt);
   } else if(style==='garcon'||style==='fille'){ ctx.setTransform(K,0,0,K,0,0); drawManga(ctx,style); }
   else if(style==='neon') drawNeon();
   else if(style==='led') drawLED();
