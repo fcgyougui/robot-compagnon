@@ -88,6 +88,17 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
 .copied{font-size:12px;color:var(--muted)}
 .livegrid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 10px;align-items:center;font-size:14px}
 .livegrid input,.livegrid select{font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);min-width:0}
+.connect{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.btn.rec{background:#D7263D;border-color:#D7263D;color:#fff;font-size:17px;padding:14px 22px;border-radius:999px;box-shadow:0 6px 18px -8px rgba(215,38,61,.8);flex:1;min-width:0}
+.btn.recstop{background:transparent;border:2px solid #D7263D;color:#D7263D;font-size:17px;padding:12px 22px;border-radius:999px;flex:1;min-width:0}
+.keyrow{display:flex;gap:8px;align-items:center}
+.keyrow input[type=password]{flex:1;min-width:0;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.inline{display:flex;gap:8px;align-items:center;min-width:0}.inline select{flex:1;min-width:0}
+.who{display:flex;flex-wrap:wrap;gap:8px}
+.whob{font:inherit;font-size:14px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.whob[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:700}
+details.adv>summary{font-size:15px}
+details.adv .code{gap:12px}
 .memlist{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
 .memlist button{margin-left:8px;font:inherit;font-size:12px;border:0;background:none;color:var(--muted);cursor:pointer;text-decoration:underline}
 .livestate{align-self:center;font-size:13px;color:var(--muted)}
@@ -112,7 +123,7 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
 <div class="wrap">
   <header>
     <h1>Baka</h1>
-    <p class="sub">Banc de test Gemini Live : parle au robot avec ton micro, il te répond avec sa voix et son visage.</p>
+    <p class="sub">Touche le bouton rouge et parle à Baka : il te répond avec sa voix et son visage.</p>
   </header>
 
   <div class="grid">
@@ -125,154 +136,170 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
     </section>
 
     <section class="panel" aria-label="Commandes">
-      <div class="block">
-        <span class="label">Style du visage</span>
-        <div class="styles" id="styles"></div>
-        <p class="styleDesc" id="styleDesc"></p>
-      </div>
-
-            <div class="block" id="liveBlock">
-        <span class="label">Gemini Live (test local)</span>
-        <div class="livegrid">
-          <label for="liveKey">Clé API Gemini</label>
-          <input id="liveKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
-          <label for="liveModel">Modèle</label>
-          <input id="liveModel" type="text" value="gemini-3.8-live" spellcheck="false" list="liveModels">
-          <datalist id="liveModels"><option value="gemini-3.8-live"><option value="gemini-3.1-flash-live-preview"><option value="gemini-3-flash-live"><option value="gemini-2.5-flash-native-audio-preview-09-2025"></datalist>
-          <label for="liveVoice">Voix</label>
-          <select id="liveVoice">
-            <option>Leda</option><option>Aoede</option><option>Kore</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option>
-          </select>
-        </div>
-        <div class="toggles">
-          <label class="tg"><input type="checkbox" id="liveRemember"> Retenir la clé ici</label>
-          <label class="tg"><input type="checkbox" id="liveHalf" checked> Micro coupé quand il parle</label>
-          <label class="tg"><input type="checkbox" id="liveCam"> Caméra (activable en direct)</label>
-          <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
-          <label class="tg"><input type="checkbox" id="liveDbg"> Journal détaillé</label>
-          <label class="tg"><input type="checkbox" id="liveAgc"> Normalisation du micro</label>
-          <label class="tg"><input type="checkbox" id="liveProactive" checked> Ignore les discussions entre vous</label>
-          <label class="tg"><input type="checkbox" id="liveAffective"> S’adapte au ton de la voix</label>
-        </div>
-        <div class="livegrid">
-          <label for="liveFacing">Caméra</label>
-          <select id="liveFacing"><option value="environment">Arrière (montrer des objets)</option><option value="user">Avant (selfie)</option></select>
-          <label for="liveListen">Écoute</label>
-          <select id="liveListen">
-            <option value="name">Seulement quand on dit « Baka », puis 20 s de conversation</option>
-            <option value="touch">Toucher son visage pour lui parler</option>
-            <option value="free">Libre : Gemini décide seul</option>
-          </select>
-          <label for="micThr">Seuil micro</label>
-          <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="micThr" min="0" max="0.12" step="0.005" value="0"><span class="num" id="micThrN">0</span></div>
-            <div class="bar" style="position:relative"><i id="micLvl"></i><span id="micThrMark" style="position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg)"></span></div>
-          </div>
-          <label for="liveVad">Fin de phrase</label>
-          <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
-          <label for="liveMode">Mode</label>
-          <select id="liveMode"><option value="compagnie">Compagnie : doux, pour Ambre</option><option value="assistant">Assistant : adulte, efficace</option></select>
-          <label for="faceC">Visage compagnie</label>
-          <select id="faceC"></select>
-          <label for="faceA">Visage assistant</label>
-          <select id="faceA"></select>
-          <label for="liveVoiceA">Voix assistant</label>
-          <select id="liveVoiceA"><option>Orus</option><option>Charon</option><option>Fenrir</option><option>Kore</option><option>Puck</option><option>Leda</option><option>Aoede</option><option>Zephyr</option></select>
-          <label for="liveName">Nom du robot</label>
-          <input id="liveName" type="text" value="Baka" placeholder="facultatif" spellcheck="false" autocomplete="off">
-          <label for="liveVoiceMode">Qui parle</label>
-          <select id="liveVoiceMode">
-            <option value="gemini">Gemini Live : voix de Google, quota illimité</option>
-            <option value="robot">Le robot : le téléphone écoute et parle, Gemini Flash-Lite réfléchit (émotions exactes)</option>
-          </select>
-          <label for="txtModel">Modèle texte</label>
-          <input id="txtModel" type="text" value="gemini-3.5-flash-lite" spellcheck="false" list="txtModels">
-          <datalist id="txtModels"><option value="gemini-3.5-flash-lite"><option value="gemini-3.1-flash-lite"><option value="gemma-4-31b-it"><option value="gemma-4-26b-it"></datalist>
-          <label for="liveEmoMode">Émotions</label>
-          <select id="liveEmoMode">
-            <option value="symbols">Symboles muets dans le texte (recommandé)</option>
-            <option value="silent">Fonction, sans couper la parole</option>
-            <option value="normal">Fonction, réponse normale</option>
-            <option value="off">Désactivées (voix seule)</option>
-          </select>
-          <label for="emoHold">Durée mini</label>
-          <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="emoHold" min="0" max="3" step="0.1" value="1"><span class="num" id="emoHoldN">1,0 s</span></div>
-          <label for="emoTrans">Transition</label>
-          <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="emoTrans" min="0.1" max="1.5" step="0.05" value="0.4"><span class="num" id="emoTransN">0,40 s</span></div>
-          <label for="emoBase">Au repos</label>
-          <select id="emoBase"><option value="neutre">Neutre</option><option value="content">Content</option><option value="ecoute">J’écoute</option><option value="">Garder la dernière expression</option></select>
-        </div>
-        <div class="row">
-          <button class="btn" id="liveStart" type="button">Démarrer la conversation</button>
-          <button class="btn ghost" id="liveStop" type="button" hidden>Raccrocher</button>
+      <div class="block" id="liveBlock">
+        <div class="connect">
+          <button class="btn rec" id="liveStart" type="button">● Parler à Baka</button>
+          <button class="btn recstop" id="liveStop" type="button" hidden>■ Raccrocher</button>
           <span class="livestate" id="liveState">Déconnecté</span>
         </div>
+        <div class="keyrow">
+          <input id="liveKey" type="password" placeholder="Clé API Gemini (AIza…)" autocomplete="off" spellcheck="false" aria-label="Clé API Gemini">
+          <label class="tg"><input type="checkbox" id="liveRemember"> Retenir</label>
+        </div>
+
+        <span class="label">Options rapides</span>
+        <div class="livegrid">
+          <label for="liveMode">Mode</label>
+          <select id="liveMode"><option value="compagnie">Compagnie : doux, pour Ambre</option><option value="assistant">Assistant : adulte, efficace</option></select>
+          <label for="liveListen">Écoute</label>
+          <select id="liveListen">
+            <option value="name">Quand on dit « Baka », puis 20 s</option>
+            <option value="touch">Toucher son visage pour parler</option>
+            <option value="free">Libre : Gemini décide seul</option>
+          </select>
+          <label for="liveFacing">Caméra</label>
+          <div class="inline"><label class="tg"><input type="checkbox" id="liveCam"> Allumée</label><select id="liveFacing"><option value="environment">Arrière</option><option value="user">Avant</option></select></div>
+        </div>
+        <span class="label">Qui parle ?</span>
+        <div class="who" id="who">
+          <button type="button" class="whob" data-who="">Je ne sais pas</button>
+          <button type="button" class="whob" data-who="Loïc">Loïc</button>
+          <button type="button" class="whob" data-who="Ambre">Ambre</button>
+          <button type="button" class="whob" data-who="quelqu'un d'autre">Autre</button>
+        </div>
+        <p class="note">Touche le prénom au début de ta phrase : Baka sait alors à qui il répond. Sur le robot, ce sera automatique (visage et voix).</p>
         <video id="liveVideo" playsinline muted hidden></video>
+
+        <span class="label">Conversation</span>
+        <div class="chatlog" id="liveLog" aria-live="polite"><p class="bubble err">Colle ta clé, puis touche le bouton rouge. Parle normalement : Gemini détecte tout seul quand tu as fini.</p></div>
+        <div class="timings"><span>Délai de réponse <b id="liveLat">—</b></span><span>Moyenne <b id="liveAvg">—</b></span><span>Échanges <b id="liveN">0</b></span></div>
+
         <details id="memBox"><summary>Mémoire de Baka (<span id="memCount">0</span>)</summary><div class="code">
           <p class="note">Ce que Baka a retenu, gardé dans ce navigateur et redonné à Gemini au début de chaque conversation, avec la fin de vos derniers échanges.</p>
           <ul id="memList" class="memlist"></ul>
           <div class="row"><input id="memAdd" type="text" placeholder="Ajouter un souvenir, ex. Le chien s’appelle Filou" style="flex:1;min-width:0;font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg)"><button class="btn ghost" id="memAddBtn" type="button">Ajouter</button></div>
           <div class="row"><button class="btn ghost" id="memClearLog" type="button">Oublier les conversations</button><button class="btn ghost" id="memClearAll" type="button">Tout effacer</button><span class="copied" id="memLogN"></span></div>
         </div></details>
-        <div class="chatlog" id="liveLog" aria-live="polite"><p class="bubble err">Entre ta clé, choisis une voix, puis démarre. Parle normalement : Gemini détecte tout seul quand tu as fini.</p></div>
-        <div class="timings"><span>Délai de réponse <b id="liveLat">—</b></span><span>Moyenne <b id="liveAvg">—</b></span><span>Échanges <b id="liveN">0</b></span></div>
-        <div class="timings"><span>Reçu : son <b id="dAudio">0</b></span><span>texte <b id="dText">0</b></span><span>fonctions <b id="dTool">0</b></span><span>tours <b id="dTurn">0</b></span><span>images <b id="dImg">0</b></span></div>
-        <p class="note">Avec « Micro coupé quand il parle », le robot ne s'entend pas lui-même, mais on ne peut pas lui couper la parole. Décoche-le avec un casque pour tester les interruptions. La clé reste dans ce navigateur et n'est envoyée qu'à Google.</p>
-      </div>
-
-      <div class="block" id="chatBlock">
-        <span class="label">Discuter avec le robot</span>
-        <div class="chatlog" id="chatlog" aria-live="polite">
-          <p class="bubble bot">Écris-moi quelque chose, je te réponds avec ma voix et mon visage.</p>
-        </div>
-        <form class="ask" id="askForm" autocomplete="off">
-          <input id="askInput" type="text" placeholder="Dis bonjour au robot…" aria-label="Message pour le robot" enterkeyhint="send">
-          <button class="btn" id="askBtn" type="submit">Envoyer</button>
-          <button class="btn ghost" id="stopBtn" type="button" hidden>Stop</button>
-        </form>
-        <div class="timings" id="timings"><span>Première réponse <b id="tText">—</b></span><span>Début de la voix <b id="tVoice">—</b></span><span>Voix <b id="tVoiceName">—</b></span></div>
-        <p class="note" id="chatNote">Pour parler au lieu d'écrire, touche le micro de ton clavier (dictée vocale). Les réponses viennent de Claude, sur ton compte.</p>
       </div>
 
       <div class="block">
+        <span class="label">Style du visage</span>
+        <div class="styles" id="styles"></div>
+        <p class="styleDesc" id="styleDesc"></p>
         <span class="label">Expression</span>
         <div class="chips" id="chips"></div>
       </div>
 
-      <div class="block">
-        <span class="label">Parole</span>
-        <div class="row" id="voices">
-          <button class="btn" type="button" data-v="kokoro">Kokoro</button>
-          <button class="btn" type="button" data-v="piper">Piper</button>
-          <button class="btn ghost" type="button" data-v="espeak">eSpeak</button>
-          <button class="btn ghost" type="button" id="talk">Sans son</button>
-        </div>
-        <p class="note">Trois moteurs de synthèse vocale, même phrase. Kokoro est le plus naturel mais le plus lourd ; Piper est très rapide sur le N97 (la voix réelle sera un modèle Piper plus récent que celui-ci) ; eSpeak est le plus basique. Monte le volume du téléphone.</p>
-        <div class="meter"><span>Volume</span><div class="bar"><i id="ampBar"></i></div><span class="num" id="ampNum">0 %</span></div>
-        <div class="meter"><span>Bouche</span><div class="bar"><i id="mouthBar"></i></div><span class="num" id="mouthNum">0 %</span></div>
-        <div class="slider"><label for="gain">Sensibilité</label><input type="range" id="gain" min="0.3" max="1.6" step="0.05" value="1"><span class="num" id="gainNum">1,00</span></div>
-      </div>
-
-      <div class="block">
-        <span class="label">Réglages</span>
-        <div class="row"><button class="btn ghost" id="blink" type="button">Cligner</button></div>
-        <div class="toggles">
-          <label class="tg"><input type="checkbox" id="autoBlink" checked> Clignement auto</label>
-          <label class="tg"><input type="checkbox" id="autoGaze" checked> Regard auto</label>
-          <label class="tg"><input type="checkbox" id="pixels" checked> Pixels réels</label>
-          <label class="tg"><input type="checkbox" id="breath" checked> Respiration</label>
-        </div>
-        <div class="file">
-          <label for="audioFile" style="font-size:14px;font-weight:700">Ton propre enregistrement</label>
-          <input type="file" id="audioFile" accept="audio/*">
-          <audio id="player" controls hidden></audio>
-          <p class="note">La bouche suit le volume mesuré sur le son, exactement comme l'ESP32 le fera avec les échantillons envoyés au MAX98357A. L'import de fichier fonctionne dans un navigateur sur PC, pas toujours dans l'appli mobile.</p>
-        </div>
-      </div>
-
-      <details>
-        <summary>Table des expressions en C (style Classique)</summary>
+      <details class="adv">
+        <summary>Réglages avancés</summary>
         <div class="code">
+          <span class="label">Personnalités</span>
+          <div class="livegrid">
+            <label for="liveName">Nom du robot</label>
+            <input id="liveName" type="text" value="Baka" placeholder="facultatif" spellcheck="false" autocomplete="off">
+            <label for="faceC">Visage compagnie</label>
+            <select id="faceC"></select>
+            <label for="liveVoice">Voix compagnie</label>
+            <select id="liveVoice"><option>Leda</option><option>Aoede</option><option>Kore</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option></select>
+            <label for="faceA">Visage assistant</label>
+            <select id="faceA"></select>
+            <label for="liveVoiceA">Voix assistant</label>
+            <select id="liveVoiceA"><option>Orus</option><option>Charon</option><option>Fenrir</option><option>Kore</option><option>Puck</option><option>Leda</option><option>Aoede</option><option>Zephyr</option></select>
+          </div>
+          <span class="label">Micro et écoute</span>
+          <div class="livegrid">
+            <label for="micThr">Seuil micro</label>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+              <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="micThr" min="0" max="0.12" step="0.005" value="0"><span class="num" id="micThrN">0</span></div>
+              <div class="bar" style="position:relative"><i id="micLvl"></i><span id="micThrMark" style="position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg)"></span></div>
+            </div>
+            <label for="liveVad">Fin de phrase</label>
+            <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
+          </div>
+          <div class="toggles">
+            <label class="tg"><input type="checkbox" id="liveHalf" checked> Micro coupé quand il parle</label>
+            <label class="tg"><input type="checkbox" id="liveAgc"> Normalisation du micro</label>
+            <label class="tg"><input type="checkbox" id="liveProactive" checked> Ignore les discussions entre vous</label>
+            <label class="tg"><input type="checkbox" id="liveAffective"> S’adapte au ton de la voix</label>
+          </div>
+          <span class="label">Émotions du visage</span>
+          <div class="livegrid">
+            <label for="liveEmoMode">Méthode</label>
+            <select id="liveEmoMode">
+              <option value="symbols">Symboles muets dans le texte (recommandé)</option>
+              <option value="silent">Fonction, sans couper la parole</option>
+              <option value="normal">Fonction, réponse normale</option>
+              <option value="off">Désactivées (voix seule)</option>
+            </select>
+            <label for="emoHold">Durée mini</label>
+            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="emoHold" min="0" max="3" step="0.1" value="1"><span class="num" id="emoHoldN">1,0 s</span></div>
+            <label for="emoTrans">Transition</label>
+            <div class="slider" style="grid-template-columns:minmax(0,1fr) 3.2em"><input type="range" id="emoTrans" min="0.1" max="1.5" step="0.05" value="0.4"><span class="num" id="emoTransN">0,40 s</span></div>
+            <label for="emoBase">Au repos</label>
+            <select id="emoBase"><option value="neutre">Neutre</option><option value="content">Content</option><option value="ecoute">J’écoute</option><option value="">Garder la dernière expression</option></select>
+          </div>
+          <span class="label">Modèles</span>
+          <div class="livegrid">
+            <label for="liveVoiceMode">Cerveau</label>
+            <select id="liveVoiceMode">
+              <option value="gemini">Gemini Live : voix de Google, quota illimité</option>
+              <option value="robot">Le robot : le téléphone écoute et parle, Gemini Flash-Lite réfléchit</option>
+            </select>
+            <label for="liveModel">Modèle Live</label>
+            <input id="liveModel" type="text" value="gemini-3.8-live" spellcheck="false" list="liveModels">
+            <datalist id="liveModels"><option value="gemini-3.8-live"><option value="gemini-3.1-flash-live-preview"><option value="gemini-3-flash-live"><option value="gemini-2.5-flash-native-audio-preview-09-2025"></datalist>
+            <label for="txtModel">Modèle texte</label>
+            <input id="txtModel" type="text" value="gemini-3.5-flash-lite" spellcheck="false" list="txtModels">
+            <datalist id="txtModels"><option value="gemini-3.5-flash-lite"><option value="gemini-3.1-flash-lite"><option value="gemma-4-31b-it"><option value="gemma-4-26b-it"></datalist>
+          </div>
+          <span class="label">Diagnostic</span>
+          <div class="toggles">
+            <label class="tg"><input type="checkbox" id="liveDbg"> Journal détaillé</label>
+            <label class="tg"><input type="checkbox" id="livePitch"> Voix plus aiguë</label>
+          </div>
+          <div class="timings"><span>Reçu : son <b id="dAudio">0</b></span><span>texte <b id="dText">0</b></span><span>fonctions <b id="dTool">0</b></span><span>tours <b id="dTurn">0</b></span><span>images <b id="dImg">0</b></span></div>
+          <p class="note">Avec « Micro coupé quand il parle », le robot ne s'entend pas lui-même, mais on ne peut pas lui couper la parole. Décoche-le avec un casque pour tester les interruptions. La clé reste dans ce navigateur et n'est envoyée qu'à Google.</p>
+        </div>
+      </details>
+
+      <details class="adv">
+        <summary>Outils de test du visage</summary>
+        <div class="code">
+          <div id="chatBlock" class="block">
+            <span class="label">Discuter avec Claude</span>
+            <div class="chatlog" id="chatlog" aria-live="polite"><p class="bubble bot">Écris-moi quelque chose, je te réponds avec ma voix et mon visage.</p></div>
+            <form class="ask" id="askForm" autocomplete="off">
+              <input id="askInput" type="text" placeholder="Dis bonjour au robot…" aria-label="Message pour le robot" enterkeyhint="send">
+              <button class="btn" id="askBtn" type="submit">Envoyer</button>
+              <button class="btn ghost" id="stopBtn" type="button" hidden>Stop</button>
+            </form>
+            <div class="timings" id="timings"><span>Première réponse <b id="tText">—</b></span><span>Début de la voix <b id="tVoice">—</b></span><span>Voix <b id="tVoiceName">—</b></span></div>
+            <p class="note" id="chatNote">Pour parler au lieu d'écrire, touche le micro de ton clavier (dictée vocale).</p>
+          </div>
+          <span class="label">Parole de test</span>
+          <div class="row" id="voices">
+            <button class="btn" type="button" data-v="kokoro">Kokoro</button>
+            <button class="btn" type="button" data-v="piper">Piper</button>
+            <button class="btn ghost" type="button" data-v="espeak">eSpeak</button>
+            <button class="btn ghost" type="button" id="talk">Sans son</button>
+          </div>
+          <div class="meter"><span>Volume</span><div class="bar"><i id="ampBar"></i></div><span class="num" id="ampNum">0 %</span></div>
+          <div class="meter"><span>Bouche</span><div class="bar"><i id="mouthBar"></i></div><span class="num" id="mouthNum">0 %</span></div>
+          <div class="slider"><label for="gain">Sensibilité</label><input type="range" id="gain" min="0.3" max="1.6" step="0.05" value="1"><span class="num" id="gainNum">1,00</span></div>
+          <span class="label">Animation</span>
+          <div class="row"><button class="btn ghost" id="blink" type="button">Cligner</button></div>
+          <div class="toggles">
+            <label class="tg"><input type="checkbox" id="autoBlink" checked> Clignement auto</label>
+            <label class="tg"><input type="checkbox" id="autoGaze" checked> Regard auto</label>
+            <label class="tg"><input type="checkbox" id="pixels" checked> Pixels réels</label>
+            <label class="tg"><input type="checkbox" id="breath" checked> Respiration</label>
+          </div>
+          <div class="file">
+            <label for="audioFile" style="font-size:14px;font-weight:700">Ton propre enregistrement</label>
+            <input type="file" id="audioFile" accept="audio/*">
+            <audio id="player" controls hidden></audio>
+          </div>
+          <span class="label">Table des expressions en C</span>
           <div class="row" style="align-items:center"><button class="btn ghost" id="copy" type="button">Copier le code</button><span class="copied" id="copied" role="status"></span></div>
           <pre id="ccode"></pre>
         </div>
@@ -1531,7 +1558,7 @@ L('memClearAll').onclick=()=>{ memLog=[]; memFacts=[]; memSave(); };
 memRender();
 function memFlushTurn(){
   const i=memTurnIn.trim(), o=memTurnOut.replace(/[_^~°§¤¨#|]/g,'').replace(/\s+/g,' ').trim();
-  if(i) memLog.push('Humain : '+i); if(o) memLog.push('Toi : '+o);
+  if(i) memLog.push('Humain'+(whoNow?' ('+whoNow+')':'')+' : '+i); if(o) memLog.push('Toi : '+o);
   if(memLog.length>30) memLog=memLog.slice(-30);
   memTurnIn=''; memTurnOut=''; if(i||o) memSave();
 }
@@ -1591,10 +1618,19 @@ function armPause(){
     dbg('conversation en pause : Baka attend son nom');
   },wait);
 }
+// ---------- Qui parle ----------
+let whoNow=LS('whoNow')||'';
+function whoRender(){ document.querySelectorAll('#who .whob').forEach(b=>b.setAttribute('aria-pressed',b.dataset.who===whoNow)); }
+document.querySelectorAll('#who .whob').forEach(b=>b.onclick=()=>{
+  whoNow=b.dataset.who; LSset('whoNow',whoNow); whoRender();
+  if(ws&&whoNow){ send({clientContent:{turns:[{role:'user',parts:[{text:'[Note du système, ne réponds pas à cette note : c\u2019est '+whoNow+' qui parle maintenant.]'}]}],turnComplete:false}}); dbg('note envoyée : '+whoNow+' parle'); }
+});
+whoRender();
 function addressRules(){
   const n=L('liveName').value.trim(); LSset('gemName',n||null);
   const strict=L('liveListen').value==='name'?`Règle stricte : au début, et après chaque pause signalée par une note du système, tu ne réponds QUE si quelqu'un prononce ton nom${n?' ('+n+')':''}. Une fois appelé, tu peux continuer la conversation normalement.\n`:'';
-  return (n?`Tu t'appelles ${n}.\n`:'')+strict+`Plusieurs personnes peuvent parler dans la pièce. Ne réponds que si on s'adresse à toi : on t'appelle${n?' par ton nom ('+n+')':''}, on te pose une question, on te parle directement, ou la conversation avec toi est en cours. Si les personnes parlent entre elles, de choses qui ne te concernent pas, reste silencieux et n'interviens pas. En cas de doute après un long silence, tu peux rester discret.\n`;
+  const whoRule=`Des notes du système du type « c'est X qui parle » t'indiquent qui te parle : tiens-en compte pour t'adresser à la bonne personne. Ambre a 6 ans : avec elle, reste en mode compagnie et refuse gentiment le mode assistant si c'est elle qui le demande.${whoNow?' Au début de cette conversation, c\u2019est '+whoNow+' qui parle.':''}\n`;
+  return (n?`Tu t'appelles ${n}.\n`:'')+strict+whoRule+`Plusieurs personnes peuvent parler dans la pièce. Ne réponds que si on s'adresse à toi : on t'appelle${n?' par ton nom ('+n+')':''}, on te pose une question, on te parle directement, ou la conversation avec toi est en cours. Si les personnes parlent entre elles, de choses qui ne te concernent pas, reste silencieux et n'interviens pas. En cas de doute après un long silence, tu peux rester discret.\n`;
 }
 let voiceMode='gemini', txtRaw='', txtDone=0, txtEmo=null, txtFirst=false;
 const TAG_RE=/^\s*\[([^\]\n]{1,20})\]\s*/;
@@ -1759,7 +1795,7 @@ const robotBusy=()=>!!fetchCtl||ttsActive>0||(synth&&synth.speaking)||performanc
 async function askText(userText){
   const key=L('liveKey').value.trim(), model=L('txtModel').value.trim()||'gemini-3.5-flash-lite';
   LSset('gemTxtModel',model);
-  const parts=[{text:userText}], img=grabFrame(); if(img){ parts.push({inlineData:{mimeType:'image/jpeg',data:img}}); diag.img++; showDiag(); }
+  const parts=[{text:(whoNow?'['+whoNow+' parle] ':'')+userText}], img=grabFrame(); if(img){ parts.push({inlineData:{mimeType:'image/jpeg',data:img}}); diag.img++; showDiag(); }
   const contents=[...hist,{role:'user',parts}];
   const t0=performance.now(); turnT0=t0; txtRaw=''; txtDone=0; txtEmo=null; txtFirst=false; curOut=null;
   dbg('envoi à '+model+(img?' avec une image':''));
