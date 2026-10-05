@@ -170,6 +170,14 @@ pre{margin:0;overflow-x:auto;font-family:var(--f-mono);font-size:11.5px;line-hei
           </div>
           <label for="liveVad">Fin de phrase</label>
           <select id="liveVad"><option value="fast">Rapide (0,6 s de silence)</option><option value="normal">Normale (réglage Google)</option></select>
+          <label for="liveMode">Mode</label>
+          <select id="liveMode"><option value="compagnie">Compagnie : doux, pour Ambre</option><option value="assistant">Assistant : adulte, efficace</option></select>
+          <label for="faceC">Visage compagnie</label>
+          <select id="faceC"></select>
+          <label for="faceA">Visage assistant</label>
+          <select id="faceA"></select>
+          <label for="liveVoiceA">Voix assistant</label>
+          <select id="liveVoiceA"><option>Orus</option><option>Charon</option><option>Fenrir</option><option>Kore</option><option>Puck</option><option>Leda</option><option>Aoede</option><option>Zephyr</option></select>
           <label for="liveName">Nom du robot</label>
           <input id="liveName" type="text" value="Baka" placeholder="facultatif" spellcheck="false" autocomplete="off">
           <label for="liveVoiceMode">Qui parle</label>
@@ -1534,6 +1542,35 @@ function memPrompt(){
   t+='\nTu te souviens de toute la conversation en cours. Si on te dit « recommence » ou « répète », redis ta dernière réponse. Quand on t\u2019apprend quelque chose d\u2019important à retenir pour plus tard (un prénom, un goût, une habitude, un événement), appelle la fonction memoriser avec une phrase courte, sans l\u2019annoncer.\n';
   return t;
 }
+// ---------- Modes : compagnie / assistant ----------
+const MODE_TOOL={name:'changer_mode',description:'Bascule entre le mode compagnie (pour l\u2019enfant : doux, joueur, visage kawaii) et le mode assistant (pour les adultes : posé, efficace, visage Noyau). À appeler quand on te le demande (« mode assistant », « mode compagnie »), ou pour repasser en compagnie si un enfant participe. Continue de parler normalement.',behavior:'NON_BLOCKING',
+  parameters:{type:'OBJECT',properties:{mode:{type:'STRING',enum:['compagnie','assistant']}},required:['mode']}};
+for(const id of ['faceC','faceA']){ const sel=L(id); for(const [k,st] of Object.entries(STYLES)){ const o=document.createElement('option'); o.value=k; o.textContent=st.name; sel.appendChild(o); } }
+L('faceC').value=LS('faceC')||'kawaii'; L('faceA').value=LS('faceA')||'noyau';
+if(LS('liveMode')) L('liveMode').value=LS('liveMode'); if(LS('liveVoiceA')) L('liveVoiceA').value=LS('liveVoiceA');
+let pendingRestart=false;
+const curMode=()=>L('liveMode').value;
+function applyModeFace(){ setStyle(curMode()==='assistant'?L('faceA').value:L('faceC').value); }
+function setMode(m,why){
+  if(m!=='compagnie'&&m!=='assistant') return;
+  const changed=m!==curMode(); L('liveMode').value=m; LSset('liveMode',m); applyModeFace();
+  if(changed){ bub('err','Mode '+m+(why?' ('+why+')':'')); if(ws) pendingRestart=true; }
+}
+function maybeRestart(){
+  if(!pendingRestart||!ws) return;
+  const wait=actx?Math.max(0,(nextT-actx.currentTime)*1000)+500:500;
+  pendingRestart=false;
+  setTimeout(()=>{ if(!ws) return; dbg('redémarrage de la session pour changer de mode'); stop(); setTimeout(()=>L('liveStart').click(),350); },wait);
+}
+L('liveMode').onchange=()=>{ LSset('liveMode',curMode()); applyModeFace(); if(ws){ pendingRestart=true; maybeRestart(); } };
+L('faceC').onchange=()=>{ LSset('faceC',L('faceC').value); applyModeFace(); };
+L('faceA').onchange=()=>{ LSset('faceA',L('faceA').value); applyModeFace(); };
+L('liveVoiceA').onchange=()=>LSset('liveVoiceA',L('liveVoiceA').value);
+applyModeFace();
+function modePrompt(){
+  if(curMode()==='assistant') return `MODE ASSISTANT (prioritaire sur les consignes de ton enfantin plus bas) : tu parles à un adulte. Ton posé, précis et efficace, avec une pointe d'humour pince-sans-rire. Tes réponses peuvent être plus développées si la question le demande, mais restent concises. Vocabulaire adulte et technique bienvenu. Ignore les consignes qui parlent d'un enfant et d'une voix de petit robot. Si un enfant participe à la conversation, appelle changer_mode avec « compagnie ».\n`;
+  return `MODE COMPAGNIE : tu es le compagnon de jeu d'Ambre, une petite fille de 6 ans. Si un adulte te demande le mode assistant, appelle changer_mode avec « assistant ».\n`;
+}
 const MEM_TOOL={name:'memoriser',description:'Enregistre un fait important à retenir pour les prochaines conversations. Continue de parler normalement.',behavior:'NON_BLOCKING',
   parameters:{type:'OBJECT',properties:{fait:{type:'STRING',description:'Le fait à retenir, en une phrase courte, ex. « Le chien s\u2019appelle Filou ».'}},required:['fait']}};
 window.__liveThinking=()=>!!ws&&lastVoiceAt>0&&!turnStarted&&performance.now()-lastVoiceAt>250&&performance.now()-lastVoiceAt<6000;
@@ -1655,9 +1692,10 @@ function onMsg(m){
       if(fc.name==='changer_expression'){ const e=String(fc.args?.emotion||'').toLowerCase(); const k=EMO.find(x=>x===e); if(k){ if(!turnT0) turnT0=performance.now(); const anchor=anchorOf(fc.args?.phrase);
           dbg('fonction : '+k+(anchor?' pour « '+anchor+' »':' (sans phrase)')+(turnAudio?' (pendant la parole)':' (avant la parole)'));
           emoQ.push({k,anchor}); if(anchor&&actx) tryAnchors(); else if(turnAudio&&!emoApplied){ applyAt(emoQ.shift().k,actx.currentTime,'appel tardif'); } } else r={result:'émotion inconnue'}; }
+      if(fc.name==='changer_mode'){ const m=String(fc.args?.mode||''); dbg('fonction : changer_mode '+m); setMode(m,'demandé à la voix'); }
       if(fc.name==='memoriser'){ const f=String(fc.args?.fait||'').trim(); if(f&&!memFacts.includes(f)){ memFacts.push(f); if(memFacts.length>60) memFacts.shift(); memSave(); bub('err','Baka retient : '+f); } }
       if(fc.name==='changer_expression') turnTools++; diag.tool++; showDiag();
-      rs.push(fc.name==='memoriser'||emoMode==='silent'?{id:fc.id,name:fc.name,response:r,scheduling:'SILENT'}:{id:fc.id,name:fc.name,response:r});
+      rs.push(fc.name==='memoriser'||fc.name==='changer_mode'||emoMode==='silent'?{id:fc.id,name:fc.name,response:r,scheduling:'SILENT'}:{id:fc.id,name:fc.name,response:r});
     }
     send({toolResponse:{functionResponses:rs}}); return;
   }
@@ -1704,7 +1742,7 @@ function onMsg(m){
     dbg('fin du tour');
     emoQ=[]; emoApplied=false; boundary=false; turnT0=0; turnRaw=''; matchPos=0; segs=[]; clearTimeout(firstTimer); firstTimer=0;
     if(turnAudio) scheduleRest();
-    memFlushTurn(); armPause(); if(L('liveListen').value==='touch'&&actx) touchUntil=Math.max(touchUntil,performance.now()+(nextT-actx.currentTime)*1000+8000);
+    memFlushTurn(); armPause(); maybeRestart(); if(L('liveListen').value==='touch'&&actx) touchUntil=Math.max(touchUntil,performance.now()+(nextT-actx.currentTime)*1000+8000);
     turnAudio=0; turnTools=0; turnStarted=false; curOut=null; curIn=null; lastVoiceAt=0; }
 }
 // ---------- Mode « robot » : reconnaissance du téléphone + Gemini texte + voix du téléphone ----------
@@ -1798,12 +1836,12 @@ async function start(){
   ws.onopen=()=>{
     send({setup:{
       model:'models/'+model,
-      generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:L('liveVoice').value}}},...(L('liveAffective').checked?{enableAffectiveDialog:true}:{})},
+      generationConfig:voiceMode==='robot'?{responseModalities:['TEXT']}:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:curMode()==='assistant'?L('liveVoiceA').value:L('liveVoice').value}}},...(L('liveAffective').checked?{enableAffectiveDialog:true}:{})},
       ...(L('liveProactive').checked&&voiceMode!=='robot'?{proactivity:{proactiveAudio:true}}:{}),
-      systemInstruction:{parts:[{text:addressRules()+memPrompt()+(voiceMode==='robot'?SYS_TXT:emoMode==='symbols'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,'')+SYS_SYM:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS)}]},
+      systemInstruction:{parts:[{text:addressRules()+modePrompt()+memPrompt()+(voiceMode==='robot'?SYS_TXT:emoMode==='symbols'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,'')+SYS_SYM:emoMode==='off'?SYS.replace(/Ton visage est un écran\.[^\n]*\n/,''):SYS)}]},
       contextWindowCompression:{slidingWindow:{}},
       sessionResumption:{},
-      tools:[{functionDeclarations:[MEM_TOOL,...(emoMode==='off'||emoMode==='symbols'?[]:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
+      tools:[{functionDeclarations:[MEM_TOOL,MODE_TOOL,...(emoMode==='off'||emoMode==='symbols'?[]:[{name:'changer_expression',description:'Change l’expression du visage du robot sur son écran. Continue de parler normalement pendant ce temps.',
         behavior:'NON_BLOCKING',
         parameters:{type:'OBJECT',properties:{emotion:{type:'STRING',enum:EMO,description:'L’émotion à afficher.'},phrase:{type:'STRING',description:'Les 3 ou 4 premiers mots de la phrase que tu vas dire avec cette émotion, exactement comme tu vas les prononcer.'}},required:['emotion','phrase']}}])]}],
       inputAudioTranscription:{}, ...(voiceMode==='robot'?{}:{outputAudioTranscription:{}}),
